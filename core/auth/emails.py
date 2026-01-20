@@ -55,13 +55,13 @@ def send_otp_email(email, otp):
     Send an OTP email for login verification.
     """
     subject = "Your Login Code - Code of Clans"
-    
+
     try:
         context = {"otp": otp}
-        
+
         # HTML Message
         html_message = render_to_string("emails/otp_login.html", context)
-        
+
         # Plain Text Fallback
         message = (
             f"Hello,\n\n"
@@ -69,7 +69,7 @@ def send_otp_email(email, otp):
             f"This code will expire in 10 minutes.\n"
             f"If you didn't request this code, please ignore this email."
         )
-        
+
         send_mail(
             subject=subject,
             message=message,
@@ -79,7 +79,6 @@ def send_otp_email(email, otp):
             html_message=html_message,
         )
         logger.info("OTP email sent to %s", email)
-        
+
     except Exception:
         logger.exception("Failed to send OTP email to %s", email)
-

@@ -15,42 +15,112 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='UserFollow',
+            name="UserFollow",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('follower', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='following', to=settings.AUTH_USER_MODEL)),
-                ('following', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='followers', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "follower",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="following",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "following",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="followers",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'indexes': [models.Index(fields=['follower', 'following'], name='users_userf_followe_3f285f_idx')],
-                'unique_together': {('follower', 'following')},
+                "indexes": [
+                    models.Index(
+                        fields=["follower", "following"],
+                        name="users_userf_followe_3f285f_idx",
+                    )
+                ],
+                "unique_together": {("follower", "following")},
             },
         ),
         migrations.CreateModel(
-            name='UserProfile',
+            name="UserProfile",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('provider', models.CharField(choices=[('github', 'GitHub'), ('google', 'Google'), ('discord', 'Discord')], max_length=20)),
-                ('provider_id', models.CharField(max_length=255)),
-                ('avatar_url', models.URLField(blank=True, max_length=500, null=True)),
-                ('banner_url', models.URLField(blank=True, max_length=500, null=True)),
-                ('bio', models.TextField(blank=True, max_length=500, null=True)),
-                ('access_token', models.TextField(blank=True, null=True)),
-                ('refresh_token', models.TextField(blank=True, null=True)),
-                ('github_username', models.CharField(blank=True, max_length=100, null=True)),
-                ('leetcode_username', models.CharField(blank=True, max_length=100, null=True)),
-                ('xp', models.IntegerField(default=0)),
-                ('referral_code', models.CharField(blank=True, max_length=12, null=True, unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('referred_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='referrals', to=settings.AUTH_USER_MODEL)),
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='profile', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "provider",
+                    models.CharField(
+                        choices=[
+                            ("github", "GitHub"),
+                            ("google", "Google"),
+                            ("discord", "Discord"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                ("provider_id", models.CharField(max_length=255)),
+                ("avatar_url", models.URLField(blank=True, max_length=500, null=True)),
+                ("banner_url", models.URLField(blank=True, max_length=500, null=True)),
+                ("bio", models.TextField(blank=True, max_length=500, null=True)),
+                ("access_token", models.TextField(blank=True, null=True)),
+                ("refresh_token", models.TextField(blank=True, null=True)),
+                (
+                    "github_username",
+                    models.CharField(blank=True, max_length=100, null=True),
+                ),
+                (
+                    "leetcode_username",
+                    models.CharField(blank=True, max_length=100, null=True),
+                ),
+                ("xp", models.IntegerField(default=0)),
+                (
+                    "referral_code",
+                    models.CharField(blank=True, max_length=12, null=True, unique=True),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "referred_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="referrals",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="profile",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'User Profile',
-                'verbose_name_plural': 'User Profiles',
-                'unique_together': {('provider', 'provider_id')},
+                "verbose_name": "User Profile",
+                "verbose_name_plural": "User Profiles",
+                "unique_together": {("provider", "provider_id")},
             },
         ),
     ]

@@ -7,9 +7,9 @@ class AuthTokenSerializer(serializers.Serializer):
     """
     Response serializer for successful authentication.
     Bundles tokens with user data for frontend bootstrapping.
-    
+
     Why bundle user data?
-    To avoid an extra network round-trip. When a user logs in, the frontend 
+    To avoid an extra network round-trip. When a user logs in, the frontend
     immediately needs their profile (name, avatar, etc.) to render the UI.
     """
 
@@ -43,56 +43,66 @@ class AdminLoginSerializer(serializers.Serializer):
 
     def validate(self, data):
         # Extract credentials from payload
-        username = data.get('username')
-        password = data.get('password')
+        username = data.get("username")
+        password = data.get("password")
 
         if username and password:
             # Delegate credential verification to Django auth backend
             user = authenticate(
-                request=self.context.get('request'),
+                request=self.context.get("request"),
                 username=username,
-                password=password
+                password=password,
             )
 
             # Reject invalid credentials
             if not user:
                 raise serializers.ValidationError(
-                    'Unable to log in with provided credentials.'
+                    "Unable to log in with provided credentials."
                 )
 
             # Enforce admin-only access
             if not (user.is_staff or user.is_superuser):
                 raise serializers.ValidationError(
-                    'You do not have permission to access the admin area.'
+                    "You do not have permission to access the admin area."
                 )
 
             # Attach authenticated user to validated data
-            data['user'] = user
+            data["user"] = user
         else:
             # Enforce presence of both username and password
-            raise serializers.ValidationError(
-                'Must include "username" and "password".'
-            )
+            raise serializers.ValidationError('Must include "username" and "password".')
 
         return data
 
 
 class OAuthCodeSerializer(serializers.Serializer):
     """Serializer for OAuth callback receiving an authorization code."""
-    code = serializers.CharField(required=True, help_text="Authorization code from the provider.")
+
+    code = serializers.CharField(
+        required=True, help_text="Authorization code from the provider."
+    )
 
 
 class OAuthURLSerializer(serializers.Serializer):
     """Serializer for returning the OAuth authorization URL."""
+
     url = serializers.URLField(help_text="Redirect URL for OAuth provider.")
 
 
 class OTPRequestSerializer(serializers.Serializer):
-    """Serializer for requesting an OTP."""
+    """
+    Validator for OTP request payload.
+    Ensures email is provided and valid.
+    """
+
     email = serializers.EmailField(required=True)
 
 
 class OTPVerifySerializer(serializers.Serializer):
-    """Serializer for verifying an OTP."""
+    """
+    Validator for OTP verification payload.
+    Requires both email and the 4-6 digit OTP code.
+    """
+
     email = serializers.EmailField(required=True)
     otp = serializers.CharField(required=True, min_length=4, max_length=6)

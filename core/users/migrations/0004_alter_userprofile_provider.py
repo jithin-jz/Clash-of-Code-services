@@ -6,13 +6,23 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0003_remove_userprofile_avatar_url_and_more'),
+        ("users", "0003_remove_userprofile_avatar_url_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='userprofile',
-            name='provider',
-            field=models.CharField(choices=[('github', 'GitHub'), ('google', 'Google'), ('discord', 'Discord'), ('email', 'Email OTP'), ('local', 'Local/Admin')], help_text='The OAuth provider used to create this account.', max_length=20),
+            model_name="userprofile",
+            name="provider",
+            field=models.CharField(
+                choices=[
+                    ("github", "GitHub"),
+                    ("google", "Google"),
+                    ("discord", "Discord"),
+                    ("email", "Email OTP"),
+                    ("local", "Local/Admin"),
+                ],
+                help_text="The OAuth provider used to create this account.",
+                max_length=20,
+            ),
         ),
     ]

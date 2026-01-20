@@ -7,13 +7,13 @@ from django.dispatch import receiver
 class UserProfile(models.Model):
     """
     Extended user profile model that serves as the core identity record..
-    
+
     Responsibilities:
     1.  **OAuth Integration**: Stores provider name and unique ID to link external accounts.
     2.  **Profile Data**: Stores public facing data like avatar, banner, and bio.
     3.  **Social/Gamification**: Tracks XP (experience points), referral system codes, and links.
     4.  **Security**: Temporarily stores OAuth tokens (access/refresh) for API usage.
-    
+
     Relationships:
     - OneToOne with Django's built-in User model.
     - Self-referencing ForeignKey for the referral system (`referred_by`).
@@ -22,37 +22,46 @@ class UserProfile(models.Model):
     # Supported OAuth providers
     # 'local' is used for admin/superuser accounts created via CLI
     PROVIDER_CHOICES = [
-        ('github', 'GitHub'),
-        ('google', 'Google'),
-        ('discord', 'Discord'),
-        ('email', 'Email OTP'),
-        ('local', 'Local/Admin'),
+        ("github", "GitHub"),
+        ("google", "Google"),
+        ("discord", "Discord"),
+        ("email", "Email OTP"),
+        ("local", "Local/Admin"),
     ]
 
     # One-to-one link insures strict 1:1 relationship between auth user and profile
     user = models.OneToOneField(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='profile',
-        help_text="The associated Django User account."
+        User,
+        on_delete=models.CASCADE,
+        related_name="profile",
+        help_text="The associated Django User account.",
     )
 
     # Authentication Source
     provider = models.CharField(
-        max_length=20, 
+        max_length=20,
         choices=PROVIDER_CHOICES,
-        help_text="The OAuth provider used to create this account."
+        help_text="The OAuth provider used to create this account.",
     )
     provider_id = models.CharField(
         max_length=255,
-        help_text="Unique ID returned by the OAuth provider (e.g., GitHub user ID)."
+        help_text="Unique ID returned by the OAuth provider (e.g., GitHub user ID).",
     )
 
     # Public Profile Visuals
     # Public Profile Visuals
-    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, help_text="User's profile picture.")
-    banner = models.ImageField(upload_to='banners/', blank=True, null=True, help_text="Profile background banner.")
-    bio = models.TextField(max_length=500, blank=True, null=True, help_text="Short user biography.")
+    avatar = models.ImageField(
+        upload_to="avatars/", blank=True, null=True, help_text="User's profile picture."
+    )
+    banner = models.ImageField(
+        upload_to="banners/",
+        blank=True,
+        null=True,
+        help_text="Profile background banner.",
+    )
+    bio = models.TextField(
+        max_length=500, blank=True, null=True, help_text="Short user biography."
+    )
 
     # OAuth Tokens (Sensitive)
     # Stored to allow backend to make API calls on behalf of the user (e.g. fetch repos)
@@ -65,17 +74,25 @@ class UserProfile(models.Model):
 
     # Gamification & Referrals
     xp = models.IntegerField(default=0, help_text="Total Experience Points earned.")
-    streak_freezes = models.IntegerField(default=0, help_text="Number of streak freezes available.")
-    referral_code = models.CharField(max_length=12, unique=True, blank=True, null=True, help_text="Unique code for inviting others.")
-    
+    streak_freezes = models.IntegerField(
+        default=0, help_text="Number of streak freezes available."
+    )
+    referral_code = models.CharField(
+        max_length=12,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Unique code for inviting others.",
+    )
+
     # Who invited this user?
     referred_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='referrals',
-        help_text="The user who referred this account."
+        related_name="referrals",
+        help_text="The user who referred this account.",
     )
 
     # Metadata
@@ -84,17 +101,18 @@ class UserProfile(models.Model):
 
     class Meta:
         # Prevent same OAuth account from being reused
-        unique_together = ['provider', 'provider_id']
-        verbose_name = 'User Profile'
-        verbose_name_plural = 'User Profiles'
+        unique_together = ["provider", "provider_id"]
+        verbose_name = "User Profile"
+        verbose_name_plural = "User Profiles"
 
     def save(self, *args, **kwargs):
         # Auto-generate unique referral code if missing
         if not self.referral_code:
             import random
             import string
+
             while True:
-                code = ''.join(
+                code = "".join(
                     random.choices(string.ascii_uppercase + string.digits, k=8)
                 )
                 if not UserProfile.objects.filter(referral_code=code).exists():
@@ -119,16 +137,12 @@ class UserFollow(models.Model):
 
     # User who initiates the follow
     follower = models.ForeignKey(
-        User,
-        related_name='following',
-        on_delete=models.CASCADE
+        User, related_name="following", on_delete=models.CASCADE
     )
 
     # User being followed
     following = models.ForeignKey(
-        User,
-        related_name='followers',
-        on_delete=models.CASCADE
+        User, related_name="followers", on_delete=models.CASCADE
     )
 
     # Timestamp of follow action
@@ -136,11 +150,11 @@ class UserFollow(models.Model):
 
     class Meta:
         # Prevent duplicate follow relationships
-        unique_together = ['follower', 'following']
+        unique_together = ["follower", "following"]
 
         # Optimize follower/following queries
         indexes = [
-            models.Index(fields=['follower', 'following']),
+            models.Index(fields=["follower", "following"]),
         ]
 
     def __str__(self):
@@ -150,10 +164,10 @@ class UserFollow(models.Model):
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     # Automatically create profile when a user is created
-    if created and not hasattr(instance, 'profile'):
+    if created and not hasattr(instance, "profile"):
         UserProfile.objects.create(
             user=instance,
-            provider='local',
+            provider="local",
             provider_id=f"local_{instance.id}",
-            bio="Administrator" if instance.is_superuser else "User"
+            bio="Administrator" if instance.is_superuser else "User",
         )

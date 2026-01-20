@@ -8,32 +8,59 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('authentication', '0002_delete_user'),
+        ("authentication", "0002_delete_user"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='userprofile',
-            name='banner_url',
+            model_name="userprofile",
+            name="banner_url",
             field=models.URLField(blank=True, max_length=500, null=True),
         ),
         migrations.AddField(
-            model_name='userprofile',
-            name='bio',
+            model_name="userprofile",
+            name="bio",
             field=models.TextField(blank=True, max_length=500, null=True),
         ),
         migrations.CreateModel(
-            name='UserFollow',
+            name="UserFollow",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('follower', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='following', to=settings.AUTH_USER_MODEL)),
-                ('following', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='followers', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "follower",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="following",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "following",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="followers",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'indexes': [models.Index(fields=['follower', 'following'], name='authenticat_followe_e90fa8_idx')],
-                'unique_together': {('follower', 'following')},
+                "indexes": [
+                    models.Index(
+                        fields=["follower", "following"],
+                        name="authenticat_followe_e90fa8_idx",
+                    )
+                ],
+                "unique_together": {("follower", "following")},
             },
         ),
     ]

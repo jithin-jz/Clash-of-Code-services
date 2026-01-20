@@ -32,13 +32,12 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "drf_spectacular",
-
-    'auth',
+    "auth",
     # 'chat',
-    'rewards',
-    'users',
-    'xpoint',
-    'payments',
+    "rewards",
+    "users",
+    "xpoint",
+    "payments",
 ]
 
 # Middleware
@@ -85,7 +84,7 @@ WSGI_APPLICATION = "project.wsgi.application"
 #     }
 # }
 
-# Supabase 
+# Supabase
 
 # DATABASE_URL = os.getenv("DATABASE_URL")
 # if not DATABASE_URL:
@@ -98,7 +97,7 @@ WSGI_APPLICATION = "project.wsgi.application"
 #     )
 # }
 
-#pgadmin
+# pgadmin
 
 DATABASES = {
     "default": {
@@ -112,10 +111,11 @@ DATABASES = {
 }
 
 
-
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -158,15 +158,15 @@ CORS_ALLOW_CREDENTIALS = True
 # drf_spectacular
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Code of Clans API',
-    'DESCRIPTION': 'API documentation for the Code of Clans gamification platform',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
+    "TITLE": "Code of Clans API",
+    "DESCRIPTION": "API documentation for the Code of Clans gamification platform",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 # Django REST Framework
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "auth.authentication.JWTAuthentication",
     ],
@@ -200,14 +200,14 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Email Configuration
 # To send real emails, we use the SMTP backend.
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@codeofclans.com')
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@codeofclans.com")
 
 # Razorpay
-RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID')
-RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET')
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET")

@@ -6,30 +6,30 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('authentication', '0005_userprofile_github_username_and_more'),
+        ("authentication", "0005_userprofile_github_username_and_more"),
     ]
 
     operations = [
         migrations.AlterUniqueTogether(
-            name='userfollow',
+            name="userfollow",
             unique_together=None,
         ),
         migrations.RemoveIndex(
-            model_name='userfollow',
-            name='authenticat_followe_e90fa8_idx',
+            model_name="userfollow",
+            name="authenticat_followe_e90fa8_idx",
         ),
         migrations.RemoveField(
-            model_name='userfollow',
-            name='follower',
+            model_name="userfollow",
+            name="follower",
         ),
         migrations.RemoveField(
-            model_name='userfollow',
-            name='following',
+            model_name="userfollow",
+            name="following",
         ),
         migrations.DeleteModel(
-            name='UserProfile',
+            name="UserProfile",
         ),
         migrations.DeleteModel(
-            name='UserFollow',
+            name="UserFollow",
         ),
     ]

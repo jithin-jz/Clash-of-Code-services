@@ -6,26 +6,36 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0002_userprofile_streak_freezes_and_more'),
+        ("users", "0002_userprofile_streak_freezes_and_more"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='userprofile',
-            name='avatar_url',
+            model_name="userprofile",
+            name="avatar_url",
         ),
         migrations.RemoveField(
-            model_name='userprofile',
-            name='banner_url',
+            model_name="userprofile",
+            name="banner_url",
         ),
         migrations.AddField(
-            model_name='userprofile',
-            name='avatar',
-            field=models.ImageField(blank=True, help_text="User's profile picture.", null=True, upload_to='avatars/'),
+            model_name="userprofile",
+            name="avatar",
+            field=models.ImageField(
+                blank=True,
+                help_text="User's profile picture.",
+                null=True,
+                upload_to="avatars/",
+            ),
         ),
         migrations.AddField(
-            model_name='userprofile',
-            name='banner',
-            field=models.ImageField(blank=True, help_text='Profile background banner.', null=True, upload_to='banners/'),
+            model_name="userprofile",
+            name="banner",
+            field=models.ImageField(
+                blank=True,
+                help_text="Profile background banner.",
+                null=True,
+                upload_to="banners/",
+            ),
         ),
     ]
