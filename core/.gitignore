@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Header files
+*.h // turbo
+
+# Environments
+.env
+.venv
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/

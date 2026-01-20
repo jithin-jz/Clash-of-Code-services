@@ -1,0 +1,168 @@
+Code of Clans Backend
+
+This document provides a structured overview of the Django applications that power the Code of Clans backend. Each app has a clearly defined responsibility and interacts with others through well-defined service boundaries.
+
+---
+
+1. Auth App (auth)
+
+Purpose
+Handles all user authentication concerns, including standard authentication flows and OAuth-based social logins.
+
+Key Features
+
+* JWT-based stateless authentication
+* OAuth integration with GitHub, Google, and Discord
+* Access and refresh token generation and validation
+
+Workflow
+
+1. Frontend Request
+   The client requests an OAuth authorization URL from the backend
+   Example endpoint: /api/auth/github/
+
+2. Redirect
+   The backend responds with the provider’s login URL
+   The frontend redirects the user to the OAuth provider
+
+3. Callback
+   After successful login, the provider redirects the user back to the frontend
+   The frontend extracts the authorization code and sends it to the backend callback endpoint
+
+4. Exchange
+   AuthService exchanges the authorization code with the provider
+   The backend retrieves the user profile and generates JWT access and refresh tokens
+
+---
+
+2. Users App (users)
+
+Purpose
+Manages user profiles and all extended user-related data beyond Django’s default User model.
+
+Key Features
+
+* UserProfile model extending User
+* Stores avatar URL, bio, XP, streak freezes, and other metadata
+* Stores social profile links (GitHub, LinkedIn, etc.)
+* Custom Django admin interface for user management
+
+Workflow
+
+* The frontend retrieves full user profile data via /api/profiles/user/
+* Django signals automatically create a UserProfile whenever a new User is registered
+* Other apps reference UserProfile for non-authentication-related user data
+
+---
+
+3. Rewards App (rewards)
+
+Purpose
+Implements the gamification system, focusing on daily check-ins and streak tracking.
+
+Key Features
+
+* Daily check-in tracking
+* Streak calculation and reset logic
+* Streak freeze consumption to preserve streaks on missed days
+
+Workflow
+
+1. Check-In
+   The user calls /api/rewards/check-in/
+
+2. Calculation
+   StreakService determines whether the streak increments, resets, or consumes a freeze
+
+3. Reward
+   XPService awards XP based on the current streak day
+   Example: Day 7 awards 35 XP
+
+---
+
+4. XPoint App (xpoint)
+
+Purpose
+Acts as the centralized service layer for all XP (Experience Point) operations.
+
+Key Features
+
+* XPService as a single authority for XP modification
+* Atomic database transactions to ensure consistency
+* Logging of XP sources (check-ins, purchases, referrals, etc.)
+
+Workflow
+
+* Other apps (such as rewards and payments) never modify XP directly
+* Instead, they call XPService.add_xp() or related methods
+* This ensures consistent validation, auditing, and transactional safety
+
+---
+
+5. Payments App (payments)
+
+Purpose
+Handles real-money transactions for purchasing XP using Razorpay.
+
+Key Features
+
+* Razorpay order creation and verification
+* Strict package-to-XP mapping
+  Example: ₹99 always maps to 100 XP
+* Cryptographic signature verification for payment validation
+
+Workflow
+
+1. Create Order
+   The frontend requests an order ID for a selected purchase amount
+
+2. Payment
+   The user completes payment via the Razorpay frontend modal
+
+3. Verification
+   The frontend sends payment_id and signature to the backend
+
+4. Fulfillment
+   After successful verification, XPService credits XP to the user account
+
+---
+
+6. Chat App (chat)
+
+Purpose
+Provides real-time global chat functionality using WebSockets.
+
+Key Features
+
+* Django Channels with ASGI support
+* WebSocket consumer for real-time communication
+* Message persistence for chat history
+* Global chat group broadcasting
+
+Workflow
+
+1. Connection
+   The client connects via ws://<host>/ws/chat/
+
+2. History
+   On connection, the server sends the last 50 stored messages
+
+3. Broadcast
+   When a user sends a message:
+
+   * The message is saved to the database
+   * The message is broadcast to all connected clients in the global_chat group
+
+---
+
+Architecture Summary
+
+* Each app has a single, clear responsibility
+* Authentication and authorization are isolated in the auth app
+* User data is centralized in the users app
+* XP is controlled exclusively through xpoint
+* Business logic flows through service layers, not views
+* Real-time features are handled asynchronously via ASGI and Channels
+
+This architecture prioritizes clarity, separation of concerns, and long-term maintainability.
+

@@ -1,0 +1,256 @@
+Docker: What, Why, and How We Implemented It
+
+---
+
+1. What is Docker?
+
+Docker is a containerization platform that allows an application to be packaged together with its runtime environment, system dependencies, and configuration.
+
+Instead of relying on the host machine’s setup, Docker ensures the application runs in a predictable and reproducible environment everywhere.
+
+Core Concepts
+
+* Container
+  A lightweight, isolated runtime unit that includes the application code, runtime, libraries, and system dependencies.
+
+* Image
+  A read-only blueprint used to create containers. Images define how containers are built.
+
+* Docker vs Virtual Machines
+  Virtual machines include an entire operating system, making them heavy and slow to start.
+  Docker containers share the host operating system kernel while remaining isolated, making them lightweight and fast.
+
+---
+
+2. Why We Use Docker
+
+3. Environment Consistency
+   The classic “it works on my machine” problem is eliminated.
+   If the application runs inside Docker on one machine, it will run the same way everywhere.
+
+4. Isolation
+   The Django backend runs in a controlled environment.
+   Host-level Python versions or system packages do not matter.
+   The container uses the exact Python version it was built with (Python 3.12).
+
+5. Dependency Management
+   External services like PostgreSQL run as containers.
+   No local installation, no OS-specific configuration, no system pollution.
+
+6. Fast Developer Onboarding
+   New developers do not need to install Python, PostgreSQL, Redis, or related tools.
+   A single command starts the entire stack.
+
+---
+
+3. How Docker Is Implemented in Code of Clan
+
+Dockerization was achieved through four core components.
+
+---
+
+A. Dockerfile (Application Blueprint)
+
+Location
+/backend/Dockerfile
+
+Purpose
+Defines how the Django backend image is built.
+
+Key Steps
+
+* Start from python:3.12-slim as the base image
+* Set a working directory inside the container
+* Copy requirements.txt into the container
+* Install Python dependencies inside the container
+* Copy the application source code
+* Define the default startup command (runserver)
+
+This ensures the backend image always builds in a consistent and reproducible way.
+
+---
+
+B. docker-compose.yml (Service Orchestration)
+
+Location
+/backend/docker-compose.yml
+
+Purpose
+Manages multiple containers as a single application stack.
+
+Defined Services
+
+1. web
+
+   * Django backend service
+   * Built using the Dockerfile
+   * Exposes port 8000 to the host
+   * Depends on the database service
+
+2. db
+
+   * PostgreSQL database service
+   * Uses the official postgres:15 image
+   * Persists data using a Docker volume
+   * Exposes port 5432 for database tools
+
+Docker Compose connects these services on a private internal network.
+
+---
+
+C. Django settings.py (Environment Bridge)
+
+Location
+/backend/project/settings.py
+
+Purpose
+Decouple configuration from code by using environment variables.
+
+Key Change
+Database credentials are no longer hardcoded.
+
+Example logic
+
+* Inside Docker, DB_HOST is set to the service name “db”
+* Outside Docker, it falls back to 127.0.0.1 for local execution
+
+This allows the same codebase to run both inside and outside Docker.
+
+---
+
+D. Supporting Files (.env and requirements.txt)
+
+requirements.txt
+
+* Includes psycopg2-binary for PostgreSQL connectivity
+* Includes daphne and channels for ASGI and WebSockets
+* Ensures all dependencies are installed inside the container
+
+.env
+
+* Defines database credentials and ports
+* Allows local tools to connect to the Dockerized database
+* Keeps secrets and environment-specific values out of source code
+
+---
+
+4. Daily Workflow with Docker
+
+Before Docker
+
+* Install Python manually
+* Install PostgreSQL manually
+* Configure services and ports
+* Create virtual environments
+* Match production dependencies by hand
+
+With Docker
+Single command startup:
+
+docker-compose up --build
+
+Docker handles:
+
+* Pulling images
+* Building the Python environment
+* Starting PostgreSQL
+* Wiring services together
+
+---
+
+Lifecycle Control Commands
+
+docker-compose up              Start services
+docker-compose up -d           Start services in background
+docker-compose down            Stop containers (keeps data)
+docker-compose down -v         Stop containers and delete data
+docker-compose restart web     Restart only Django backend
+
+---
+
+Inspect Running Resources
+
+docker ps                      List running containers
+docker ps -a                   List all containers
+docker images                  List images
+docker volume ls               List persistent volumes
+docker network ls              List Docker networks
+
+---
+
+Logs and Debugging
+
+docker-compose logs
+docker-compose logs web
+docker-compose logs -f web     Live log stream
+
+Reading logs is mandatory. Guessing is not debugging.
+
+---
+
+5. Getting Inside Containers
+
+Access Django container
+
+docker-compose exec web bash
+
+From inside the container:
+
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py shell
+
+Access PostgreSQL container
+
+docker-compose exec db psql -U postgres
+
+Basic PostgreSQL commands:
+
+\l        List databases
+\c dbname Connect to a database
+\dt       List tables
+
+---
+
+Common Actions Reference
+
+Action        Command                         When to Use
+Restart       docker-compose restart          Code changes only
+Rebuild       docker-compose up --build       requirements.txt changed
+Full reset    docker-compose down -v          Need a clean database
+
+Hard rule
+Changing Python code does not require rebuilding the image.
+Changing dependencies does.
+
+If you rebuild every time, Docker fundamentals are not understood yet.
+
+---
+
+6. Data Safety and Persistence
+
+Question
+If Docker is stopped, is database data lost?
+
+Answer
+No, if volumes are configured correctly.
+
+Implementation
+A Docker volume is used for PostgreSQL data storage.
+
+Volume mapping
+postgres_data:/var/lib/postgresql/data/
+
+Behavior
+
+* docker-compose down
+  Stops containers and preserves database data
+
+* docker-compose down -v
+  Stops containers and permanently deletes database data
+
+Guideline
+Use docker-compose down for daily work.
+Use -v only when a full reset is intentionally required.
+
+
