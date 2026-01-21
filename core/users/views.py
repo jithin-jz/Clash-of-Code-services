@@ -27,7 +27,10 @@ class CurrentUserView(APIView):
     serializer_class = UserSerializer
 
     def get(self, request):
-        return Response(UserSerializer(request.user, context={"request": request}).data)
+        return Response(
+            UserSerializer(request.user, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProfileUpdateView(APIView):
@@ -79,7 +82,10 @@ class ProfileUpdateView(APIView):
 
         profile.save()
 
-        return Response(UserSerializer(user, context={"request": request}).data)
+        return Response(
+            UserSerializer(user, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProfileDetailView(APIView):
@@ -108,7 +114,7 @@ class ProfileDetailView(APIView):
         else:
             data["is_following"] = False
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class FollowToggleView(APIView):
@@ -141,12 +147,14 @@ class FollowToggleView(APIView):
         else:
             is_following = True
 
+        return_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(
             {
                 "is_following": is_following,
                 "follower_count": target_user.followers.count(),
                 "following_count": target_user.following.count(),
-            }
+            },
+            status=return_status,
         )
 
 
@@ -197,7 +205,7 @@ class UserFollowersView(APIView):
                 }
             )
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class UserFollowingView(APIView):
@@ -247,7 +255,7 @@ class UserFollowingView(APIView):
                 }
             )
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class RedeemReferralView(APIView):
@@ -302,7 +310,8 @@ class RedeemReferralView(APIView):
                 "message": "Referral code redeemed successfully",
                 "xp_awarded": 100,
                 "new_total_xp": profile.xp,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -318,7 +327,8 @@ class UserListView(APIView):
 
         users = User.objects.all().order_by("-date_joined")
         return Response(
-            UserSerializer(users, many=True, context={"request": request}).data
+            UserSerializer(users, many=True, context={"request": request}).data,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -356,5 +366,6 @@ class UserBlockToggleView(APIView):
             {
                 "message": f"User {'unblocked' if user.is_active else 'blocked'} successfully",
                 "is_active": user.is_active,
-            }
+            },
+            status=status.HTTP_200_OK,
         )

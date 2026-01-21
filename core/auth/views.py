@@ -40,7 +40,7 @@ class GitHubAuthURLView(APIView):
             "scope": "user:email",  # Request email access
         }
         url = f"https://github.com/login/oauth/authorize?{urlencode(params)}"
-        return Response({"url": url})
+        return Response({"url": url}, status=status.HTTP_200_OK)
 
 
 class GitHubCallbackView(APIView):
@@ -73,7 +73,8 @@ class GitHubCallbackView(APIView):
                 "access_token": result["access_token"],
                 "refresh_token": result["refresh_token"],
                 "user": UserSerializer(user, context={"request": request}).data,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -93,7 +94,7 @@ class GoogleAuthURLView(APIView):
             "prompt": "select_account",
         }
         url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
-        return Response({"url": url})
+        return Response({"url": url}, status=status.HTTP_200_OK)
 
 
 class GoogleCallbackView(APIView):
@@ -120,7 +121,8 @@ class GoogleCallbackView(APIView):
                 "access_token": result["access_token"],
                 "refresh_token": result["refresh_token"],
                 "user": UserSerializer(user, context={"request": request}).data,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -138,7 +140,7 @@ class DiscordAuthURLView(APIView):
             "scope": "identify email",
         }
         url = f"https://discord.com/api/oauth2/authorize?{urlencode(params)}"
-        return Response({"url": url})
+        return Response({"url": url}, status=status.HTTP_200_OK)
 
 
 class DiscordCallbackView(APIView):
@@ -165,7 +167,8 @@ class DiscordCallbackView(APIView):
                 "access_token": result["access_token"],
                 "refresh_token": result["refresh_token"],
                 "user": UserSerializer(user, context={"request": request}).data,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -216,7 +219,8 @@ class RefreshTokenView(APIView):
             {
                 "access_token": new_access_token,
                 "user": UserSerializer(user, context={"request": request}).data,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -233,7 +237,7 @@ class LogoutView(APIView):
     def post(self, request):
         # In a stateless JWT system, logout is handled client-side
         # We just return success here
-        return Response({"message": "Successfully logged out"})
+        return Response({"message": "Successfully logged out"}, status=status.HTTP_200_OK)
 
 
 class DeleteAccountView(APIView):
@@ -249,7 +253,7 @@ class DeleteAccountView(APIView):
     def delete(self, request):
         user = request.user
         user.delete()
-        return Response({"message": "Account deleted successfully"})
+        return Response({"message": "Account deleted successfully"}, status=status.HTTP_200_OK)
 
 
 # --- Admin Views ---
@@ -277,7 +281,8 @@ class AdminLoginView(APIView):
                 "access_token": tokens["access_token"],
                 "refresh_token": tokens["refresh_token"],
                 "user": UserSerializer(user, context={"request": request}).data,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -301,7 +306,7 @@ class OTPRequestView(APIView):
         email = serializer.validated_data["email"]
         AuthService.request_otp(email)
 
-        return Response({"message": "OTP sent successfully"})
+        return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
 
 
 class OTPVerifyView(APIView):
@@ -332,5 +337,6 @@ class OTPVerifyView(APIView):
                 "access_token": result["access_token"],
                 "refresh_token": result["refresh_token"],
                 "user": UserSerializer(user, context={"request": request}).data,
-            }
+            },
+            status=status.HTTP_200_OK,
         )

@@ -118,5 +118,6 @@ class CheckInView(APIView):
                 ).data,
                 "daily_rewards": self.DAILY_REWARDS,
                 "freezes_left": user.profile.streak_freezes,
-            }
+            },
+            status=status.HTTP_200_OK,
         )
