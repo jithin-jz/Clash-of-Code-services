@@ -1,142 +1,206 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException, status
-from typing import List, Dict
-import os
-import json
-import jwt
-import asyncio
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
+import os, json, jwt, asyncio
+import redis.asyncio as redis
 from dotenv import load_dotenv
+from typing import Dict, List
 
-# Load environment variables
+from schemas import ChatMessage, PresenceEvent, IncomingMessage
+
 load_dotenv()
 
-app = FastAPI(title="CodeShorts Chat Service")
+# --------------------------------------------------
+# Config
+# --------------------------------------------------
 
-# --- Configuration ---
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-from-backend") # MUST MATCH CORE BACKEND
+app = FastAPI(title="Advanced Chat Service")
+
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-
-# --- Redis Config ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-import redis
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-CHAT_HISTORY_KEY = "chat:history:global"
 
-# --- Manager ---
-class ConnectionManager:
-    def __init__(self):
-        # Store active connections: room_name -> List[WebSocket]
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+HISTORY_LIMIT = 50
 
-    async def connect(self, websocket: WebSocket, room_name: str):
-        await websocket.accept()
-        if room_name not in self.active_connections:
-            self.active_connections[room_name] = []
-        self.active_connections[room_name].append(websocket)
-        
-        # Send history on connect
-        history = redis_client.lrange(CHAT_HISTORY_KEY, 0, 49)
-        if history:
-             # Redis stores text, parse it back to JSON
-            parsed_history = [json.loads(msg) for msg in history]
-            # Reverse because lrange gives oldest first if we pushed right?
-            # Wait, rpush adds to tail. lrange(0, -1) gets head to tail.
-            # Messages: [Msg1, Msg2, Msg3] -> lrange gives [Msg1, Msg2, Msg3].
-            # Frontend appends new messages.
-            # So sending them in order [oldest ... newest] is correct.
-            
-            await websocket.send_text(json.dumps({
-                "type": "history",
-                "messages": parsed_history
-            }))
+redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+from fastapi.responses import JSONResponse
 
-    def disconnect(self, websocket: WebSocket, room_name: str):
-        if room_name in self.active_connections:
-            if websocket in self.active_connections[room_name]:
-                self.active_connections[room_name].remove(websocket)
-            if not self.active_connections[room_name]:
-                del self.active_connections[room_name]
+@app.get("/", status_code=status.HTTP_200_OK)
+async def health_check():
+    return JSONResponse(content={"status": "ok"}, status_code=status.HTTP_200_OK)
 
-    async def broadcast(self, message: dict, room_name: str):
-        # Save to Redis
-        redis_client.rpush(CHAT_HISTORY_KEY, json.dumps(message))
-        redis_client.ltrim(CHAT_HISTORY_KEY, -50, -1) # Keep last 50
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
 
-        if room_name in self.active_connections:
-            # Serializing once to save time
-            text_data = json.dumps(message)
-            for connection in self.active_connections[room_name]:
-                try:
-                    await connection.send_text(text_data)
-                except:
-                    # Handle dead connections
-                    pass
-
-manager = ConnectionManager()
-
-# --- Auth Helper ---
-def verify_token(token: str):
-    """
-    Decodes the JWT token issued by the Core Django App.
-    """
+def verify_jwt(token: str) -> dict | None:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("user_id")
-        if user_id is None:
-            return None
-        return payload
+        return jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options={"require": ["exp"]},
+        )
     except jwt.PyJWTError:
         return None
 
-# --- Routes ---
 
-@app.get("/")
-def read_root():
-    return {"status": "Chat Service Running"}
+def history_key(room: str) -> str:
+    return f"chat:history:{room}"
 
-@app.websocket("/ws/chat/{room_name}/")
-async def websocket_endpoint(websocket: WebSocket, room_name: str, token: str = Query(...)):
-    """
-    WebSocket endpoint for chat.
-    Requires a valid JWT token in the query parameter '?token=...'
-    """
-    user_payload = verify_token(token)
-    
-    if not user_payload:
-        # Close with policy violation code if auth fails
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+
+def channel_key(room: str) -> str:
+    return f"chat:room:{room}"
+
+
+# --------------------------------------------------
+# Connection Manager
+# --------------------------------------------------
+
+# --------------------------------------------------
+# Connection Manager
+# --------------------------------------------------
+
+class ConnectionManager:
+    def __init__(self):
+        self.active: Dict[str, List[WebSocket]] = {}
+        self.tasks: Dict[str, asyncio.Task] = {}
+
+    async def connect(self, ws: WebSocket, room: str):
+        await ws.accept()
+        self.active.setdefault(room, []).append(ws)
+
+        # Start subscriber if first connection
+        if len(self.active[room]) == 1 and room not in self.tasks:
+             self.tasks[room] = asyncio.create_task(self.redis_subscriber(room))
+
+    async def disconnect(self, ws: WebSocket, room: str):
+        if room in self.active and ws in self.active[room]:
+            self.active[room].remove(ws)
+            
+            # Cleanup if room empty
+            if not self.active[room]:
+                del self.active[room]
+                if room in self.tasks:
+                    self.tasks[room].cancel()
+                    try:
+                        await self.tasks[room]
+                    except asyncio.CancelledError:
+                        pass
+                    del self.tasks[room]
+
+    async def redis_subscriber(self, room: str):
+        """Subscribes to Redis channel and broadcasts to local websockets."""
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(channel_key(room))
+
+        try:
+            async for event in pubsub.listen():
+                if event["type"] == "message":
+                    payload = json.loads(event["data"])
+                    await self.broadcast_local(room, payload)
+        except asyncio.CancelledError:
+            await pubsub.unsubscribe(channel_key(room))
+            raise
+
+    async def broadcast_local(self, room: str, payload: dict):
+        dead = []
+        message = json.dumps(payload)
+
+        for ws in self.active.get(room, []):
+            try:
+                await ws.send_text(message)
+            except Exception:
+                dead.append(ws)
+
+        for ws in dead:
+            await self.disconnect(ws, room)
+
+
+manager = ConnectionManager()
+
+# --------------------------------------------------
+# WebSocket Endpoint
+# --------------------------------------------------
+
+@app.websocket("/ws/chat/{room}/")
+async def chat_ws(ws: WebSocket, room: str):
+    # ---- Auth ----
+    auth = ws.headers.get("authorization")
+    if not auth or not auth.startswith("Bearer "):
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # In a real app, you might fetch user name from payload or DB
-    # For now, we assume payload has 'username' or we use user_id
-    # Django SimpleJWT users usually put 'user_id' in payload. 
-    # You might need to add custom claims in Django to include username.
-    user_id = user_payload.get("user_id")
-    username = user_payload.get("username", f"User {user_id}")
-    
-    await manager.connect(websocket, room_name)
-    
+    try:
+        token = auth.split(" ", 1)[1]
+    except IndexError:
+         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+         return
+
+    payload = verify_jwt(token)
+    if not payload:
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user_id = payload["user_id"]
+    username = payload.get("username", f"user-{user_id}")
+
+    # ---- Connect ----
+    await manager.connect(ws, room)
+
+    # ---- Send history ----
+    history = await redis_client.lrange(history_key(room), 0, HISTORY_LIMIT - 1)
+    if history:
+        # History is stored reversed ? No, rpush adds to tail.
+        # So list is [oldest, ..., newest] which is correct for chat.
+        await ws.send_text(json.dumps({
+            "type": "history",
+            "messages": [json.loads(m) for m in history],
+        }))
+
+    # ---- Presence join ----
+    join = PresenceEvent(
+        event="join",
+        user_id=user_id,
+        username=username,
+    )
+    await redis_client.publish(channel_key(room), join.model_dump_json())
+
+    # ---- Message loop ----
     try:
         while True:
-            data = await websocket.receive_text()
-            # Expecting JSON input
-            try:
-                message_data = json.loads(data)
-                logger_msg = message_data.get("message", "")
-                
-                # Construct response
-                response = {
-                    "type": "chat_message",
-                    "message": logger_msg,
-                    "user_id": user_id,
-                    "username": username,
-                    "sender": username,
-                    "avatar_url": user_payload.get("avatar_url") # Optional: if we add avatar later
-                }
-                
-                await manager.broadcast(response, room_name)
-            except json.JSONDecodeError:
-                pass
-                
+            raw = await ws.receive_text()
+
+            incoming = IncomingMessage.model_validate_json(raw)
+
+            message = ChatMessage(
+                room=room,
+                message=incoming.message,
+                user_id=user_id,
+                username=username,
+            )
+
+            # Persist
+            await redis_client.rpush(
+                history_key(room),
+                message.model_dump_json(),
+            )
+            await redis_client.ltrim(
+                history_key(room),
+                -HISTORY_LIMIT,
+                -1,
+            )
+
+            # Publish
+            await redis_client.publish(
+                channel_key(room),
+                message.model_dump_json(),
+            )
+
     except WebSocketDisconnect:
-        manager.disconnect(websocket, room_name)
-        # Optional: Broadcast "User left" message
+        await manager.disconnect(ws, room)
+
+        leave = PresenceEvent(
+            event="leave",
+            user_id=user_id,
+            username=username,
+        )
+        await redis_client.publish(channel_key(room), leave.model_dump_json())
