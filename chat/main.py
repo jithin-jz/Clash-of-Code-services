@@ -121,27 +121,40 @@ manager = ConnectionManager()
 # WebSocket Endpoint
 # --------------------------------------------------
 
-@app.websocket("/ws/chat/{room}/")
+@app.websocket("/ws/chat/{room}")
 async def chat_ws(ws: WebSocket, room: str):
     # ---- Auth ----
-    auth = ws.headers.get("authorization")
-    if not auth or not auth.startswith("Bearer "):
+    token = ws.query_params.get("token")
+    print(f"Connection attempt: room={room}, token_present={bool(token)}")
+    
+    # Fallback to header (for non-browser clients)
+    if not token:
+        auth = ws.headers.get("authorization")
+        if auth and auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1]
+            print("Found token in header")
+
+    if not token:
+        print("No token found")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
-
-    try:
-        token = auth.split(" ", 1)[1]
-    except IndexError:
-         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
-         return
 
     payload = verify_jwt(token)
     if not payload:
+        print("Invalid JWT")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+    
+    print(f"Auth success: {payload.get('username')}")
+    print(f"Token Payload: {payload}")
+    if payload.get("avatar_url"):
+        print(f"Avatar found: {payload['avatar_url']}")
+    else:
+        print("Avatar NOT found in token")
 
     user_id = payload["user_id"]
     username = payload.get("username", f"user-{user_id}")
+    avatar_url = payload.get("avatar_url")
 
     # ---- Connect ----
     await manager.connect(ws, room)
@@ -161,6 +174,8 @@ async def chat_ws(ws: WebSocket, room: str):
         event="join",
         user_id=user_id,
         username=username,
+        avatar_url=avatar_url,
+        count=len(manager.active.get(room, [])),
     )
     await redis_client.publish(channel_key(room), join.model_dump_json())
 
@@ -176,6 +191,7 @@ async def chat_ws(ws: WebSocket, room: str):
                 message=incoming.message,
                 user_id=user_id,
                 username=username,
+                avatar_url=avatar_url,
             )
 
             # Persist
@@ -202,5 +218,7 @@ async def chat_ws(ws: WebSocket, room: str):
             event="leave",
             user_id=user_id,
             username=username,
+            avatar_url=avatar_url,
+            count=len(manager.active.get(room, [])),
         )
         await redis_client.publish(channel_key(room), leave.model_dump_json())

@@ -16,6 +16,7 @@ class ChatMessage(BaseEvent):
     message: str = Field(min_length=1, max_length=1000)
     user_id: int
     username: str
+    avatar_url: Optional[str] = None
 
 
 class PresenceEvent(BaseEvent):
@@ -23,6 +24,8 @@ class PresenceEvent(BaseEvent):
     event: Literal["join", "leave"]
     user_id: int
     username: str
+    avatar_url: Optional[str] = None
+    count: int = 0
 
 
 class IncomingMessage(BaseModel):
