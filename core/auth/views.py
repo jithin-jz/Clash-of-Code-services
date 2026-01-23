@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from rest_framework import status, serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -34,11 +35,15 @@ class GitHubAuthURLView(APIView):
     serializer_class = OAuthURLSerializer
 
     def get(self, request):
+        state = request.query_params.get("state")
         params = {
             "client_id": settings.GITHUB_CLIENT_ID,
             "redirect_uri": settings.GITHUB_REDIRECT_URI,
             "scope": "user:email",  # Request email access
         }
+        if state:
+            params["state"] = state
+            
         url = f"https://github.com/login/oauth/authorize?{urlencode(params)}"
         return Response({"url": url}, status=status.HTTP_200_OK)
 
@@ -85,6 +90,7 @@ class GoogleAuthURLView(APIView):
     serializer_class = OAuthURLSerializer
 
     def get(self, request):
+        state = request.query_params.get("state")
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
             "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -93,6 +99,9 @@ class GoogleAuthURLView(APIView):
             "access_type": "offline",
             "prompt": "select_account",
         }
+        if state:
+            params["state"] = state
+
         url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
         return Response({"url": url}, status=status.HTTP_200_OK)
 
@@ -133,12 +142,16 @@ class DiscordAuthURLView(APIView):
     serializer_class = OAuthURLSerializer
 
     def get(self, request):
+        state = request.query_params.get("state")
         params = {
             "client_id": settings.DISCORD_CLIENT_ID,
             "redirect_uri": settings.DISCORD_REDIRECT_URI,
             "response_type": "code",
             "scope": "identify email",
         }
+        if state:
+            params["state"] = state
+
         url = f"https://discord.com/api/oauth2/authorize?{urlencode(params)}"
         return Response({"url": url}, status=status.HTTP_200_OK)
 
@@ -205,7 +218,7 @@ class RefreshTokenView(APIView):
             user = User.objects.get(id=payload["user_id"])
         except User.DoesNotExist:
             return Response(
-                {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
+                {"error": "Invalid or expired refresh token"}, status=status.HTTP_401_UNAUTHORIZED
             )
 
         if not user.is_active:
@@ -296,6 +309,8 @@ class OTPRequestView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
+    throttle_scope = 'otp'
     serializer_class = OTPRequestSerializer
 
     def post(self, request):
