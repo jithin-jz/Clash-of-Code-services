@@ -1,12 +1,16 @@
 from rest_framework import viewsets, status, decorators
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from .models import Challenge, Hint, UserProgress
-from .serializers import ChallengeSerializer, HintSerializer, UserProgressSerializer
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Count, Q
+from rest_framework.views import APIView
 
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from .models import Challenge, Hint, UserProgress
+from .serializers import ChallengeSerializer, HintSerializer, UserProgressSerializer
+from .services import ChallengeService
+from users.models import UserProfile
+from django.contrib.auth.models import User
 
 class ChallengeViewSet(viewsets.ModelViewSet):
     queryset = Challenge.objects.all()
@@ -21,179 +25,80 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
 
     def list(self, request, *args, **kwargs):
+        """
+        Return list of challenges annotated with user progress (status, stars).
+        """
         queryset = self.filter_queryset(self.get_queryset())
+        annotated_challenges = ChallengeService.get_annotated_challenges(request.user, queryset)
         
-        # Get all progress for this user
-        progress_dict = {
-            p.challenge_id: p 
-            for p in UserProgress.objects.filter(user=request.user)
-        }
-        
+        # Serialize simply
         data = []
-        # Sort by order to determine implicit unlocking
-        challenges = queryset.order_by('order')
-        
-        # Logic: First level is always unlocked. 
-        # Subsequent levels unlocked if previous is COMPLETED.
-        previous_completed = True 
-        
-        for challenge in challenges:
-            serializer = self.get_serializer(challenge)
-            item = serializer.data
-            
-            p = progress_dict.get(challenge.id)
-            
-            status = 'LOCKED'
-            stars = 0
-            
-            if p:
-                status = p.status
-                stars = p.stars
-            
-            # If not explicitly unlocked/completed, check if it should be implicit
-            if status == 'LOCKED' and previous_completed:
-                status = 'UNLOCKED'
-            
-            # Update previous_completed for next iteration
-            previous_completed = (status == 'COMPLETED')
-            
-            item['status'] = status
-            item['stars'] = stars
-            data.append(item)
+        for item in annotated_challenges:
+            serializer = self.get_serializer(item)
+            challenge_data = serializer.data
+            challenge_data['status'] = item.user_status
+            challenge_data['stars'] = item.user_stars
+            data.append(challenge_data)
             
         return Response(data)
 
-    def get_object(self):
-        # Support lookup by ID if numeric, else Slug
-        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
-        lookup_value = self.kwargs.get(lookup_url_kwarg)
-
-        if lookup_value and lookup_value.isdigit():
-            try:
-                obj = Challenge.objects.get(pk=lookup_value)
-                self.check_object_permissions(self.request, obj)
-                return obj
-            except Challenge.DoesNotExist:
-                pass
-        
-        return super().get_object()
-
     def retrieve(self, request, *args, **kwargs):
-        # Standard retrieve
+        """
+        Get challenge details including unlocked hints/status.
+        """
         instance = self.get_object()
         serializer = self.get_serializer(instance)
         data = serializer.data
         
-        # Determine user progress
-        progress, created = UserProgress.objects.get_or_create(user=request.user, challenge=instance)
+        details = ChallengeService.get_challenge_details(request.user, instance)
         
-        # Check if Locked? (Logic: Previous challenge must be completed)
-        # For simplicity, we might handle locking logic in list view or frontend.
-        # Here we just return data.
-        
-        # Add unlocked hints
-        unlocked_hints = progress.hints_unlocked.all()
-        data['unlocked_hints'] = HintSerializer(unlocked_hints, many=True).data
-        data['status'] = progress.status
-        data['stars'] = progress.stars
+        data['status'] = details['status']
+        data['stars'] = details['stars']
+        data['unlocked_hints'] = HintSerializer(details['unlocked_hints'], many=True).data
+        data['ai_assist_used'] = details['ai_assist_used']
         
         return Response(data)
 
     @decorators.action(detail=True, methods=['post'])
     def submit(self, request, slug=None):
         challenge = self.get_object()
-        user = request.user
-        
         passed = request.data.get('passed', False)
         
-        if not passed:
-            return Response({'status': 'failed'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Update Progress
-        progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
+        result = ChallengeService.process_submission(request.user, challenge, passed)
         
-        # Calculate Stars
-        stars = 3
-        if progress.ai_assist_used or progress.hints_unlocked.exists():
-            stars -= 1
+        # Determine status code
+        # A failed test is a valid processed request, so 200 OK is often appropriate for "Result: Fail".
+        # However, if passed=False means "Client says it failed", 200 is correct acknowledgment.
         
-        # Could subtract based on time_taken if sent
-        # time_taken = request.data.get('time_taken')
-        # if time_taken and time_taken > challenge.time_limit:
-        #     stars -= 1
-        
-        stars = max(1, stars) # Minimum 1 star if passed
-
-        if progress.status != 'COMPLETED' or stars > progress.stars:
-             # Reward only if first time completion or improved stars? 
-             # Simplest: Reward XP only on first completion.
+        if result['status'] == 'failed':
+             # Return 200 but indicating failure in body, OR 422 Unprocessable Entity
+             # user requested 200 with status=failed is easier for frontend usually.
+             return Response(result, status=status.HTTP_200_OK)
              
-            newly_completed = progress.status != 'COMPLETED'
-            
-            progress.status = 'COMPLETED'
-            progress.completed_at = timezone.now()
-            progress.stars = max(progress.stars, stars) # Keep highest stars
-            progress.save()
-            
-            # Award XP only on first completion
-            if newly_completed:
-                user.profile.xp += challenge.xp_reward
-                user.profile.save()
-            
-            return Response({
-                'status': 'completed' if newly_completed else 'already_completed',
-                'xp_earned': challenge.xp_reward if newly_completed else 0,
-                'stars': stars,
-                'next_level_slug': self._get_next_level_slug(challenge)
-            })
-            
-        return Response({'status': 'already_completed', 'message': 'No new XP awarded', 'stars': progress.stars})
+        return Response(result, status=status.HTTP_200_OK)
 
     @decorators.action(detail=True, methods=['post'])
     def purchase_ai_assist(self, request, slug=None):
         challenge = self.get_object()
-        cost = 10
-        if request.user.profile.xp >= cost:
-            request.user.profile.xp -= cost
-            request.user.profile.save()
-            
-            # Record usage
-            progress, _ = UserProgress.objects.get_or_create(user=request.user, challenge=challenge)
-            progress.ai_assist_used = True
-            progress.save()
-            
-            return Response({'status': 'purchased', 'remaining_xp': request.user.profile.xp})
-        else:
-            return Response({'error': 'Insufficient XP'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            remaining_xp = ChallengeService.purchase_ai_assist(request.user, challenge)
+            return Response({'status': 'purchased', 'remaining_xp': remaining_xp}, status=status.HTTP_200_OK)
+        except PermissionError:
+            return Response({'error': 'Insufficient XP'}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
     @decorators.action(detail=True, methods=['post'])
     def unlock_hint(self, request, slug=None):
         challenge = self.get_object()
         hint_order = request.data.get('hint_order', 1)
         
-        hint = get_object_or_404(Hint, challenge=challenge, order=hint_order)
-        progress, _ = UserProgress.objects.get_or_create(user=request.user, challenge=challenge)
-        
-        if progress.hints_unlocked.filter(id=hint.id).exists():
-            return Response(HintSerializer(hint).data)
-            
-        if request.user.profile.xp >= hint.cost:
-            request.user.profile.xp -= hint.cost
-            request.user.profile.save()
-            
-            progress.hints_unlocked.add(hint)
-            return Response(HintSerializer(hint).data)
-        else:
-            return Response({'error': 'Insufficient XP'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            hint = ChallengeService.unlock_hint(request.user, challenge, hint_order)
+            return Response(HintSerializer(hint).data, status=status.HTTP_200_OK)
+        except Hint.DoesNotExist:
+            return Response({'error': 'Hint not found'}, status=status.HTTP_404_NOT_FOUND)
+        except PermissionError:
+            return Response({'error': 'Insufficient XP'}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
-    def _get_next_level_slug(self, current_challenge):
-        next_challenge = Challenge.objects.filter(order__gt=current_challenge.order).order_by('order').first()
-        return next_challenge.slug if next_challenge else None
-
-from django.db.models import Count, Q
-from rest_framework.views import APIView
-from users.models import UserProfile
-from django.contrib.auth.models import User
 
 class LeaderboardView(APIView):
     """
@@ -212,13 +117,10 @@ class LeaderboardView(APIView):
         if cached_data:
             return Response(cached_data)
 
-        # Fallback calculation (same logic as task)
-        # In production, we might want to trigger the task asynchronously here
-        # and return empty/stale data or wait, but for now we calculate synchronously on miss.
         users = User.objects.annotate(
             completed_count=Count(
                 'challenge_progress', 
-                filter=Q(challenge_progress__status='COMPLETED')
+                filter=Q(challenge_progress__status=UserProgress.Status.COMPLETED)
             )
         ).select_related('profile').filter(
             is_active=True, 

@@ -42,15 +42,14 @@ class UserProgress(models.Model):
     """
     Tracks a user's progress on a challenge.
     """
-    STATUS_CHOICES = [
-        ('LOCKED', 'Locked'),
-        ('UNLOCKED', 'Unlocked'),
-        ('COMPLETED', 'Completed'),
-    ]
+    class Status(models.TextChoices):
+        LOCKED = 'LOCKED', 'Locked'
+        UNLOCKED = 'UNLOCKED', 'Unlocked'
+        COMPLETED = 'COMPLETED', 'Completed'
 
     user = models.ForeignKey(User, related_name='challenge_progress', on_delete=models.CASCADE)
     challenge = models.ForeignKey(Challenge, related_name='user_progress', on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='LOCKED')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.LOCKED)
     stars = models.IntegerField(default=0, help_text="0-3 stars based on performance")
     ai_assist_used = models.BooleanField(default=False, help_text="True if user purchased AI help.")
     hints_unlocked = models.ManyToManyField(Hint, blank=True, related_name='unlocked_by')
