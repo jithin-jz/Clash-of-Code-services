@@ -1,6 +1,11 @@
 from sqlmodel import SQLModel, Field
+from sqlalchemy import Column, DateTime
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+def get_ist_time():
+    return datetime.now(ZoneInfo("Asia/Kolkata"))
 
 class ChatMessage(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -9,4 +14,7 @@ class ChatMessage(SQLModel, table=True):
     username: str
     avatar_url: Optional[str] = None
     message: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(
+        default_factory=get_ist_time,
+        sa_column=Column(DateTime(timezone=True))
+    )
