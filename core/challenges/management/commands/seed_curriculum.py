@@ -224,6 +224,19 @@ class Command(BaseCommand):
             (50, "Final Boss: Sudoku Validator", "Check if 9x9 grid is valid (just checking rows for simplicity).",
              "def check_rows_valid(board):\n    pass",
              "def check(scope):\n    r = [1,2,3,4,5,6,7,8,9]\n    assert scope['check_rows_valid']([r, r, r, r, r, r, r, r, r]) == True", 500),
+
+             # --- 11. EXTRA CHALLENGES (51-53) ---
+            (51, "Merge Dictionaries", "Merge two dictionaries d1 and d2. return new dict.",
+             "def merge_dicts(d1, d2):\n    pass",
+             "def check(scope):\n    assert scope['merge_dicts']({'a':1}, {'b':2}) == {'a':1, 'b':2}", 210),
+
+            (52, "Set Intersection", "Return intersection of two sets s1 and s2.",
+             "def intersect(s1, s2):\n    pass",
+             "def check(scope):\n    assert scope['intersect']({1,2}, {2,3}) == {2}", 220),
+
+            (53, "Count Vowels", "Count number of vowels (aeiou) in string s.",
+             "def count_vowels(s):\n    pass",
+             "def check(scope):\n    assert scope['count_vowels']('hello world') == 3", 230),
         ]
 
         # 3. Create Challenges
