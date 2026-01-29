@@ -94,7 +94,7 @@ class Command(BaseCommand):
                 "cost": 250,
                 "icon_name": "Sparkles",
                 "category": "EFFECT",
-                "item_data": {"effect_type": "sparkle"}
+                "item_data": {"effect_key": "sparkle"}
             },
             {
                 "name": "Rainbow Trail",
@@ -102,7 +102,7 @@ class Command(BaseCommand):
                 "cost": 300,
                 "icon_name": "Rainbow",
                 "category": "EFFECT",
-                "item_data": {"effect_type": "rainbow"}
+                "item_data": {"effect_key": "rainbow"}
             },
             {
                 "name": "Matrix Rain",
@@ -110,7 +110,7 @@ class Command(BaseCommand):
                 "cost": 350,
                 "icon_name": "Binary",
                 "category": "EFFECT",
-                "item_data": {"effect_type": "matrix"}
+                "item_data": {"effect_key": "matrix"}
             },
 
             # --- VICTORY ANIMATIONS ---
@@ -120,7 +120,7 @@ class Command(BaseCommand):
                 "cost": 200,
                 "icon_name": "PartyPopper",
                 "category": "VICTORY",
-                "item_data": {"animation_type": "confetti"}
+                "item_data": {"victory_key": "confetti"}
             },
             {
                 "name": "Fireworks",
@@ -128,7 +128,7 @@ class Command(BaseCommand):
                 "cost": 300,
                 "icon_name": "Flame",
                 "category": "VICTORY",
-                "item_data": {"animation_type": "fireworks"}
+                "item_data": {"victory_key": "fireworks"}
             },
             {
                 "name": "Level Up!",
@@ -136,34 +136,9 @@ class Command(BaseCommand):
                 "cost": 250,
                 "icon_name": "TrendingUp",
                 "category": "VICTORY",
-                "item_data": {"animation_type": "levelup"}
+                "item_data": {"victory_key": "levelup"}
             },
 
-            # --- BADGES ---
-            {
-                "name": "Golden Frame",
-                "description": "A premium golden profile frame.",
-                "cost": 500,
-                "icon_name": "Crown",
-                "category": "BADGE",
-                "item_data": {"badge_type": "frame", "frame_style": "golden"}
-            },
-            {
-                "name": "Diamond Frame",
-                "description": "An ultra-rare diamond profile frame.",
-                "cost": 1000,
-                "icon_name": "Diamond",
-                "category": "BADGE",
-                "item_data": {"badge_type": "frame", "frame_style": "diamond"}
-            },
-            {
-                "name": "OG Badge",
-                "description": "Show everyone you're an original member.",
-                "cost": 300,
-                "icon_name": "Shield",
-                "category": "BADGE",
-                "item_data": {"badge_type": "title", "title": "OG"}
-            },
         ]
 
         for item in items:

@@ -3,13 +3,10 @@ from django.contrib.auth.models import User
 
 class StoreItem(models.Model):
     CATEGORY_CHOICES = [
-        ('ITEM', 'Item'),
         ('THEME', 'Theme'),
-        ('BADGE', 'Badge'),
-        ('BOOSTER', 'Booster'),
         ('FONT', 'Font'),
-        ('EFFECT', 'Cursor Effect'),
-        ('VICTORY', 'Victory Animation'),
+        ('EFFECT', 'Effect'),
+        ('VICTORY', 'Victory'),
     ]
 
     name = models.CharField(max_length=100)

@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from .models import StoreItem, Purchase
 from .serializers import StoreItemSerializer
+from xpoint.services import XPService
 
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
@@ -32,9 +33,8 @@ class PurchaseItemView(APIView):
         if profile.xp < item.cost:
             return Response({"error": f"Insufficient XP. Need {item.cost - profile.xp} more."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Process Transaction
-        profile.xp -= item.cost
-        profile.save()
+        # Process Transaction using XPService
+        XPService.add_xp(user, -item.cost, source="store_purchase", description=f"Purchased {item.name}")
 
         Purchase.objects.create(user=user, item=item)
 
@@ -98,7 +98,7 @@ class EquipItemView(APIView):
 
         # Handle Effects
         if item.category == 'EFFECT':
-            effect_key = item.item_data.get('effect_key')
+            effect_key = item.item_data.get('effect_key') or item.item_data.get('effect_type')
             if not effect_key:
                 return Response({"error": "Invalid effect data."}, status=status.HTTP_400_BAD_REQUEST)
             user.profile.active_effect = effect_key
@@ -107,7 +107,7 @@ class EquipItemView(APIView):
 
         # Handle Victory
         if item.category == 'VICTORY':
-            victory_key = item.item_data.get('victory_key')
+            victory_key = item.item_data.get('victory_key') or item.item_data.get('animation_type')
             if not victory_key:
                 return Response({"error": "Invalid victory data."}, status=status.HTTP_400_BAD_REQUEST)
             user.profile.active_victory = victory_key

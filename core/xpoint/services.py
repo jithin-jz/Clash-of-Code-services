@@ -17,9 +17,9 @@ class XPService:
     @staticmethod
     def add_xp(user, amount, source=None, description=None):
         """Add XP to a user's profile."""
-        if amount <= 0:
+        if amount == 0:
             logger.warning(
-                f"Attempted to add non-positive XP ({amount}) to user {user.username}"
+                f"Attempted to add zero XP to user {user.username}"
             )
             return user.profile.xp
 
