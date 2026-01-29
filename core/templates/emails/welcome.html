@@ -16,7 +16,7 @@
   >
     <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
       <tr>
-        <td align="center" style="padding: 24px 0">
+        <td align="center" style="padding: 16px">
           <!-- Card -->
           <table
             width="100%"
@@ -26,16 +26,16 @@
             style="
               max-width: 480px;
               background-color: #141414;
-              border-radius: 20px;
+              border-radius: 16px;
               overflow: hidden;
             "
           >
             <!-- Header -->
             <tr>
-              <td align="center" style="padding: 36px 24px 24px">
+              <td align="center" style="padding: 28px 20px 20px">
                 <div
                   style="
-                    font-size: 22px;
+                    font-size: 20px;
                     font-weight: 800;
                     color: #ffffff;
                     letter-spacing: 1px;
@@ -47,7 +47,7 @@
                       background-color: #000000;
                       padding: 2px 6px;
                       border-radius: 4px;
-                      font-size: 16px;
+                      font-size: 14px;
                       margin-left: 4px;
                     "
                     >ID</span
@@ -58,55 +58,54 @@
 
             <!-- Avatar -->
             <tr>
-              <td align="center" style="padding: 12px 0 20px">
-                <div
-                  style="
-                    width: 110px;
-                    height: 110px;
-                    border-radius: 50%;
-                    background-color: #2b2b2b;
-                    overflow: hidden;
-                  "
-                >
-                  {% if user.profile.avatar_url %}
-                  <img
-                    src="{{ user.profile.avatar_url }}"
-                    alt="Avatar"
-                    style="width: 100%; height: 100%; object-fit: cover"
-                  />
-                  {% else %}
-                  <div
-                    style="
-                      width: 100%;
-                      height: 100%;
-                      color: #ffffff;
-                      font-size: 44px;
-                      font-weight: 700;
-                      line-height: 110px;
-                      text-align: center;
-                    "
-                  >
-                    {{ user.username|first|upper }}
-                  </div>
-                  {% endif %}
-                </div>
+              <td align="center" style="padding: 8px 0 20px">
+                <table cellpadding="0" cellspacing="0" role="presentation">
+                  <tr>
+                    <td
+                      align="center"
+                      style="
+                        width: 96px;
+                        height: 96px;
+                        border-radius: 50%;
+                        background-color: #2b2b2b;
+                        overflow: hidden;
+                        text-align: center;
+                        line-height: 96px;
+                        font-size: 36px;
+                        font-weight: 700;
+                        color: #ffffff;
+                      "
+                    >
+                      {% if user.profile.avatar_url %}
+                      <img
+                        src="{{ user.profile.avatar_url }}"
+                        alt="Avatar"
+                        width="96"
+                        height="96"
+                        style="display: block; object-fit: cover"
+                      />
+                      {% else %}
+                      {{ user.username|first|upper }}
+                      {% endif %}
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
 
             <!-- Greeting -->
             <tr>
-              <td align="center" style="padding: 0 32px 28px">
+              <td align="center" style="padding: 0 20px 24px">
                 <h1
                   style="
                     margin: 0;
-                    font-size: 22px;
+                    font-size: 20px;
                     font-weight: 700;
                     color: #ffffff;
                     line-height: 1.4;
                   "
                 >
-                  Welcome,
-                  <br />
+                  Welcome,<br />
                   <span style="color: #f7b926">
                     {{ user.first_name|default:user.username }}
                   </span>
@@ -116,7 +115,7 @@
 
             <!-- Info Box -->
             <tr>
-              <td style="padding: 0 32px 36px">
+              <td style="padding: 0 20px 28px">
                 <table
                   width="100%"
                   cellpadding="0"
@@ -124,65 +123,48 @@
                   role="presentation"
                   style="
                     background-color: #1f1f1f;
-                    border-radius: 14px;
-                    padding: 20px;
+                    border-radius: 12px;
+                    padding: 16px;
                   "
                 >
                   <tr>
-                    <td style="padding-bottom: 14px">
-                      <div style="color: #9a9a9a; font-size: 13px">
-                        Logging in to
+                    <td style="padding-bottom: 12px">
+                      <div style="color: #9a9a9a; font-size: 12px">
+                        Account
                       </div>
                       <div
                         style="
                           color: #ffffff;
-                          font-size: 18px;
+                          font-size: 16px;
                           font-weight: 600;
                         "
                       >
-                        <span style="color: #f7b926">Code</span> of Clans
+                        Code of Clans ID
                       </div>
                     </td>
-                    <td align="right">
-                      <img
-                        src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi5gA9y2mhJjIr85KtIt63kg2NcZJDL5W7U47GFVNr2WCW5u_Dhf7vhi-Tji2Jzooa-WX_v1MQQ9jloKXNnF8WukhoOqyplbS2XhtugoLuSx9s6FWFKipgXNSg-QBywfVVKqj2dffB95lY/s1600/1c91cc7685a7b81c37194068762a66be+copia.png"
-                        alt="Code of Clans"
-                        width="36"
-                        height="36"
+                    <td align="right" width="40">
+                      <div
                         style="
-      display: block;
-      background-color: #f7b926;
-      border-radius: 8px;
-    "
-  />
-</td>
-
+                          width: 32px;
+                          height: 32px;
+                          background-color: #f7b926;
+                          border-radius: 6px;
+                        "
+                      ></div>
+                    </td>
                   </tr>
 
                   <tr>
-                    <td style="padding-top: 14px">
-                      <div style="color: #9a9a9a; font-size: 13px">From</div>
+                    <td colspan="2" style="padding-top: 12px">
                       <div
                         style="
-                          color: #ffffff;
-                          font-size: 17px;
-                          font-weight: 600;
+                          color: #bbbbbb;
+                          font-size: 14px;
+                          line-height: 1.5;
                         "
                       >
-                        Global
-                      </div>
-                    </td>
-                    <td align="right">
-                      <div
-                        style="
-                          background-color: #333;
-                          color: #fff;
-                          font-size: 11px;
-                          padding: 3px 8px;
-                          border-radius: 6px;
-                        "
-                      >
-                        WORLD
+                        Your account is ready. You can now sign in and start
+                        using Code of Clans.
                       </div>
                     </td>
                   </tr>
@@ -190,31 +172,30 @@
               </td>
             </tr>
 
-            <!-- Footer -->
+            <!-- Footer Text -->
             <tr>
-              <td align="center" style="padding: 0 32px 40px">
+              <td align="center" style="padding: 0 20px 32px">
                 <p
                   style="
                     color: #8a8a8a;
-                    font-size: 14px;
+                    font-size: 13px;
                     line-height: 1.6;
                     margin: 0;
                   "
                 >
-                  If you requested to log in to your Code of Clans ID,
-                  everything is ready.
-                  <br /><br />
-                  Game on, Chief.
+                  If you didn’t create this account, you can safely ignore this
+                  email.
                 </p>
               </td>
             </tr>
           </table>
 
+          <!-- Bottom Footer -->
           <div
             style="
               color: #444;
               font-size: 12px;
-              margin-top: 18px;
+              margin-top: 16px;
               text-align: center;
             "
           >
