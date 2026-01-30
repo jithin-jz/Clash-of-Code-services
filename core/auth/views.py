@@ -8,6 +8,8 @@ from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .throttles import AuthRateThrottle, SensitiveOperationThrottle
+
 from users.serializers import UserSerializer
 from .serializers import (
     RefreshTokenSerializer,
@@ -56,6 +58,7 @@ class GitHubCallbackView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
     serializer_class = OAuthCodeSerializer
 
     def post(self, request):
@@ -110,6 +113,7 @@ class GoogleCallbackView(APIView):
     """Handle Google OAuth callback."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
     serializer_class = OAuthCodeSerializer
 
     def post(self, request):
@@ -160,6 +164,7 @@ class DiscordCallbackView(APIView):
     """Handle Discord OAuth callback."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
     serializer_class = OAuthCodeSerializer
 
     def post(self, request):
@@ -260,6 +265,7 @@ class DeleteAccountView(APIView):
     """View to delete the user account."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [SensitiveOperationThrottle]
 
     @extend_schema(
         request=None,
@@ -281,6 +287,7 @@ class AdminLoginView(APIView):
     """Admin login view."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
     serializer_class = AdminLoginSerializer
 
     def post(self, request):

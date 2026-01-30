@@ -187,15 +187,25 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "20/minute",  # General anonymous limit
-        "user": "100/minute",  # General user limit
-        "otp": "5/minute",  # Strict limit for OTP requests
+        "anon": "20/minute",       # General anonymous limit
+        "user": "100/minute",      # General authenticated user limit
+        "otp": "5/minute",         # Strict limit for OTP requests (SMS cost)
+        "auth": "10/minute",       # Login/register attempts (brute force protection)
+        "store": "30/minute",      # Store/purchase operations
+        "sensitive": "5/minute",   # Password reset, email change
+        "burst": "10/second",      # Short burst protection
     },
 }
 
-# JWT
-JWT_SECRET_KEY = SECRET_KEY
-JWT_ALGORITHM = "HS256"
+# JWT - RS256 Asymmetric Configuration
+JWT_ALGORITHM = "RS256"
+
+# Private key for signing tokens (keep secure!)
+JWT_PRIVATE_KEY = os.getenv("JWT_PRIVATE_KEY", "").replace("\\n", "\n")
+
+# Public key for verifying tokens (can be shared with other services)
+JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+
 JWT_ACCESS_TOKEN_LIFETIME = 60 * 60
 JWT_REFRESH_TOKEN_LIFETIME = 60 * 60 * 24 * 7
 

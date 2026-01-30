@@ -8,6 +8,7 @@ from .serializers import StoreItemSerializer
 from xpoint.services import XPService
 
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from auth.throttles import StoreRateThrottle
 
 import os
 from django.conf import settings
@@ -32,6 +33,7 @@ class StoreItemViewSet(viewsets.ModelViewSet):
 
 class PurchaseItemView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [StoreRateThrottle]
 
     def post(self, request, pk=None):
         item = get_object_or_404(StoreItem, pk=pk, is_active=True)

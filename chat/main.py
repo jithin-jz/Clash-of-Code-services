@@ -1,15 +1,20 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
-import os, json, jwt, asyncio
+from fastapi.responses import JSONResponse
+import os, json, jwt, asyncio, logging
 import redis.asyncio as redis
 from dotenv import load_dotenv
 from typing import Dict, List
+from sqlmodel import select
+from sqlalchemy.orm import sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from schemas import ChatMessage as ChatMessageSchema, PresenceEvent, IncomingMessage
 from database import init_db, engine
 from models import ChatMessage
-from sqlmodel import select
-from sqlalchemy.orm import sessionmaker
-from sqlmodel.ext.asyncio.session import AsyncSession
+from rate_limiter import RateLimiter
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -17,16 +22,19 @@ load_dotenv()
 # Config
 # --------------------------------------------------
 
-app = FastAPI(title="Advanced Chat Service")
+app = FastAPI(title="Chat Service")
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256"
+# JWT Configuration (RS256 - asymmetric)
+ALGORITHM = "RS256"
+JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+
+# Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-
-HISTORY_LIMIT = 50
-
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-from fastapi.responses import JSONResponse
+rate_limiter = RateLimiter(redis_client)
+
+# Chat config
+HISTORY_LIMIT = 50
 
 @app.on_event("startup")
 async def on_startup():
@@ -44,7 +52,7 @@ def verify_jwt(token: str) -> dict | None:
     try:
         return jwt.decode(
             token,
-            SECRET_KEY,
+            JWT_PUBLIC_KEY,
             algorithms=[ALGORITHM],
             options={"require": ["exp"]},
         )
@@ -52,17 +60,9 @@ def verify_jwt(token: str) -> dict | None:
         return None
 
 
-def history_key(room: str) -> str:
-    return f"chat:history:{room}"
-
-
 def channel_key(room: str) -> str:
     return f"chat:room:{room}"
 
-
-# --------------------------------------------------
-# Connection Manager
-# --------------------------------------------------
 
 # --------------------------------------------------
 # Connection Manager
@@ -134,36 +134,33 @@ manager = ConnectionManager()
 async def chat_ws(ws: WebSocket, room: str):
     # ---- Auth ----
     token = ws.query_params.get("token")
-    print(f"Connection attempt: room={room}, token_present={bool(token)}")
     
     # Fallback to header (for non-browser clients)
     if not token:
         auth = ws.headers.get("authorization")
         if auth and auth.startswith("Bearer "):
             token = auth.split(" ", 1)[1]
-            print("Found token in header")
 
     if not token:
-        print("No token found")
+        logger.warning(f"WebSocket connection rejected: no token (room={room})")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     payload = verify_jwt(token)
     if not payload:
-        print("Invalid JWT")
+        logger.warning(f"WebSocket connection rejected: invalid JWT (room={room})")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
-    
-    print(f"Auth success: {payload.get('username')}")
-    print(f"Token Payload: {payload}")
-    if payload.get("avatar_url"):
-        print(f"Avatar found: {payload['avatar_url']}")
-    else:
-        print("Avatar NOT found in token")
 
     user_id = payload["user_id"]
     username = payload.get("username", f"user-{user_id}")
     avatar_url = payload.get("avatar_url")
+
+    # ---- Rate Limit: Connection ----
+    if not await rate_limiter.check_connection_rate(user_id):
+        logger.warning(f"WebSocket rate limited: user_id={user_id}")
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     # ---- Connect ----
     await manager.connect(ws, room)
@@ -209,6 +206,17 @@ async def chat_ws(ws: WebSocket, room: str):
             raw = await ws.receive_text()
 
             incoming = IncomingMessage.model_validate_json(raw)
+
+            # ---- Rate Limit: Message ----
+            if not await rate_limiter.check_message_rate(user_id):
+                # Send rate limit warning to user
+                await ws.send_json({"type": "error", "message": "Rate limited: too many messages"})
+                continue
+            
+            if not await rate_limiter.check_burst_rate(user_id):
+                # Send burst limit warning
+                await ws.send_json({"type": "error", "message": "Slow down! Too many messages too fast"})
+                continue
 
             message = ChatMessageSchema(
                 room=room,
