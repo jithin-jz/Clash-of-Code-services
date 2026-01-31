@@ -15,6 +15,8 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes, inline_serializer
+from rest_framework import serializers
 
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
@@ -35,6 +37,21 @@ class PurchaseItemView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [StoreRateThrottle]
 
+    @extend_schema(
+        request=None,
+        responses={
+            201: inline_serializer(
+                name="PurchaseResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "message": serializers.CharField(),
+                    "remaining_xp": serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Purchase a store item using XP.",
+    )
     def post(self, request, pk=None):
         item = get_object_or_404(StoreItem, pk=pk, is_active=True)
         user = request.user
@@ -76,6 +93,26 @@ class PurchaseItemView(APIView):
 class ImageUploadView(APIView):
     permission_classes = [IsAdminUser]
 
+    @extend_schema(
+        request={
+            "multipart/form-data": inline_serializer(
+                name="ImageUploadRequest",
+                fields={
+                    "image": serializers.FileField(),
+                }
+            )
+        },
+        responses={
+            201: inline_serializer(
+                name="ImageUploadResponse",
+                fields={
+                    "url": serializers.CharField(),
+                }
+            ),
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Upload an image for store items (Admin only).",
+    )
     def post(self, request):
         file_obj = request.FILES.get("image")
         if not file_obj:
@@ -97,6 +134,19 @@ class ImageUploadView(APIView):
 class EquipItemView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=inline_serializer(
+            name="EquipItemRequest",
+            fields={
+                "item_id": serializers.IntegerField(),
+            }
+        ),
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Equip a purchased item (theme, font, effect, etc.).",
+    )
     def post(self, request):
         item_id = request.data.get("item_id")
         item = get_object_or_404(StoreItem, pk=item_id, is_active=True)
@@ -197,6 +247,19 @@ class EquipItemView(APIView):
 class UnequipItemView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=inline_serializer(
+            name="UnequipItemRequest",
+            fields={
+                "category": serializers.ChoiceField(choices=["THEME", "FONT", "EFFECT", "VICTORY"]),
+            }
+        ),
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Unequip an item/category.",
+    )
     def post(self, request):
         category = request.data.get("category")
         user = request.user

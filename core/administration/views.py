@@ -3,7 +3,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
+from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
 from django.db.models import Sum
@@ -17,6 +18,21 @@ class AdminStatsView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="AdminStatsResponse",
+                fields={
+                    "total_users": serializers.IntegerField(),
+                    "active_sessions": serializers.IntegerField(),
+                    "oauth_logins": serializers.IntegerField(),
+                    "total_gems": serializers.IntegerField(),
+                },
+            ),
+            403: OpenApiTypes.OBJECT,
+        },
+        description="Get administration statistics.",
+    )
     def get(self, request):
         if not (request.user.is_staff or request.user.is_superuser):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
@@ -52,6 +68,13 @@ class UserListView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
 
+    @extend_schema(
+        responses={
+            200: UserSerializer(many=True),
+            403: OpenApiTypes.OBJECT,
+        },
+        description="List all users (Admin only).",
+    )
     def get(self, request):
         if not (request.user.is_staff or request.user.is_superuser):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)

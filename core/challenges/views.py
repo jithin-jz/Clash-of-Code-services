@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, decorators
+from rest_framework import viewsets, status, decorators, serializers
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
@@ -6,6 +6,8 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from rest_framework.views import APIView
 import logging
+
+from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 
 from .models import Challenge, Hint, UserProgress, UserCertificate
 from .serializers import (
@@ -71,6 +73,18 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
         return Response(data)
 
+    @extend_schema(
+        request=inline_serializer(
+            name="ChallengeSubmissionRequest",
+            fields={
+                "passed": serializers.BooleanField(),
+            }
+        ),
+        responses={
+            200: OpenApiTypes.OBJECT,
+        },
+        description="Submit a challenge solution.",
+    )
     @decorators.action(detail=True, methods=["post"])
     def submit(self, request, slug=None):
         challenge = self.get_object()
@@ -89,6 +103,20 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
         return Response(result, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="AIAssistPurchaseResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "remaining_xp": serializers.IntegerField(),
+                }
+            ),
+            402: OpenApiTypes.OBJECT,
+        },
+        description="Purchase AI assistance for a challenge.",
+    )
     @decorators.action(detail=True, methods=["post"])
     def purchase_ai_assist(self, request, slug=None):
         challenge = self.get_object()
@@ -103,6 +131,20 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 {"error": "Insufficient XP"}, status=status.HTTP_402_PAYMENT_REQUIRED
             )
 
+    @extend_schema(
+        request=inline_serializer(
+            name="UnlockHintRequest",
+            fields={
+                "hint_order": serializers.IntegerField(default=1),
+            }
+        ),
+        responses={
+            200: HintSerializer,
+            402: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description="Unlock a hint for a challenge.",
+    )
     @decorators.action(detail=True, methods=["post"])
     def unlock_hint(self, request, slug=None):
         challenge = self.get_object()
@@ -123,12 +165,21 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
 class CertificateViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
+    serializer_class = UserCertificateSerializer
 
     def list(self, request):
         certs = UserCertificate.objects.filter(user=request.user)
         serializer = UserCertificateSerializer(certs, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=None,
+        responses={
+            201: UserCertificateSerializer,
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Claim certificate if course is completed.",
+    )
     @decorators.action(detail=False, methods=["post"])
     def claim(self, request):
         """
@@ -172,6 +223,22 @@ class CertificateViewSet(viewsets.ViewSet):
 class VerifyCertificateView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="CertificateVerificationResponse",
+                fields={
+                    "valid": serializers.BooleanField(),
+                    "certificate": UserCertificateSerializer(),
+                    "user": serializers.CharField(),
+                    "issued_at": serializers.DateTimeField(),
+                }
+            ),
+            404: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Verify a certificate by ID.",
+    )
     def get(self, request, certificate_id):
         try:
             cert = UserCertificate.objects.get(id=certificate_id)
@@ -205,6 +272,21 @@ class LeaderboardView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="LeaderboardEntry",
+                fields={
+                    "username": serializers.CharField(),
+                    "avatar": serializers.URLField(allow_null=True),
+                    "completed_levels": serializers.IntegerField(),
+                    "xp": serializers.IntegerField(),
+                },
+                many=True
+            )
+        },
+        description="Get global leaderboard.",
+    )
     def get(self, request):
         from django.core.cache import cache
 
