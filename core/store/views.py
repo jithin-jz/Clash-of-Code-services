@@ -282,3 +282,4 @@ class UnequipItemView(APIView):
             {"status": "success", "message": f"Unequipped {category}"},
             status=status.HTTP_200_OK,
         )
+
