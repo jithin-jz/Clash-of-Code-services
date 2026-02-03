@@ -1,15 +1,16 @@
-import os
 import requests
 import logging
 import time
 from auto_generator import AutoGenerator
 
+from config import settings
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Config
-CORE_SERVICE_URL = os.getenv("CORE_SERVICE_URL", "http://core:8000")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
+CORE_SERVICE_URL = settings.CORE_SERVICE_URL
+INTERNAL_API_KEY = settings.INTERNAL_API_KEY
 
 def run_big_bang(target_levels=10):
     """

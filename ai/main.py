@@ -1,25 +1,38 @@
 import os
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+import sys
+import logging
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import requests
-from langchain_openai import ChatOpenAI
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
+# Local imports
+from config import settings
+# Lazy imports for big_bang and auto_generator to avoid potential circular/init issues if any
+from big_bang import run_big_bang
+
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ChromaDB workaround for some systems
 try:
     __import__('pysqlite3')
-    import sys
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
     pass
 
 load_dotenv()
 
+# Initialize App
 app = FastAPI(
     title="AI Service",
     version="1.0"
@@ -28,19 +41,18 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configuration
-OPENAI_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
-CORE_SERVICE_URL = os.getenv("CORE_SERVICE_URL", "http://core:8000")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE") # Optional, for Groq/LocalLLM
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")
+# Initialize RAG Components
+# Using local embedding model to save API costs
+embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+vector_db = Chroma(persist_directory=settings.CHROMA_PATH, embedding_function=embeddings)
 
+# --- Models ---
 class HintRequest(BaseModel):
     user_code: str
     challenge_slug: str
@@ -48,28 +60,42 @@ class HintRequest(BaseModel):
     hint_level: int = 1  # 1: Vague, 2: Moderate, 3: Specific
     user_xp: int = 0
 
+# --- Routes ---
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-from big_bang import run_big_bang
-
 @app.post("/big-bang")
-async def trigger_big_bang(background_tasks: BackgroundTasks, levels: int = 5):
+async def trigger_big_bang(
+    background_tasks: BackgroundTasks, 
+    levels: int = 5, 
+    x_internal_api_key: Optional[str] = Header(None, alias="X-Internal-API-Key")
+):
     """
     Triggers the autonomous curriculum generation in the background.
     """
+    if x_internal_api_key != settings.INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+        
     background_tasks.add_task(run_big_bang, levels)
     return {"message": f"Big Bang started for {levels} levels. Check AI logs for progress."}
 
 @app.post("/generate-level")
-async def generate_single_level(background_tasks: BackgroundTasks, level: int, user_id: int = None):
+async def generate_single_level(
+    background_tasks: BackgroundTasks, 
+    level: int, 
+    user_id: Optional[int] = None, 
+    x_internal_api_key: Optional[str] = Header(None, alias="X-Internal-API-Key")
+):
     """
     Generates a specific single level in the background.
     """
+    if x_internal_api_key != settings.INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
     def _run_single(lvl, uid):
         from auto_generator import AutoGenerator
-        import requests
         
         logger.info(f"Generating Single Level {lvl} for User {uid}...")
         try:
@@ -77,10 +103,10 @@ async def generate_single_level(background_tasks: BackgroundTasks, level: int, u
             challenge_json = generator.generate_level(lvl, user_id=uid)
             
             headers = {
-                "X-Internal-API-Key": INTERNAL_API_KEY,
+                "X-Internal-API-Key": settings.INTERNAL_API_KEY,
                 "Content-Type": "application/json"
             }
-            url = f"{CORE_SERVICE_URL}/api/challenges/"
+            url = f"{settings.CORE_SERVICE_URL}/api/challenges/"
             challenge_json["order"] = lvl
             if uid:
                 challenge_json["created_for_user_id"] = uid
@@ -96,36 +122,33 @@ async def generate_single_level(background_tasks: BackgroundTasks, level: int, u
     background_tasks.add_task(_run_single, level, user_id)
     return {"message": f"Generation started for level {level}"}
 
-import logging
-
-# Configure Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Initialize RAG Components
-CHROMA_PATH = "chroma_db"
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-vector_db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
-
 @app.post("/hints")
-def generate_hint(request: HintRequest):
+def generate_hint(
+    request: HintRequest, 
+    x_internal_api_key: Optional[str] = Header(None, alias="X-Internal-API-Key")
+):
     logger.info(f"Received hint request for challenge: {request.challenge_slug}")
+
+    if not settings.INTERNAL_API_KEY:
+         logger.warning("Internal API Key not configured, skipping auth check (INSECURE)")
+    elif x_internal_api_key != settings.INTERNAL_API_KEY:
+        logger.warning(f"Unauthorized hint request. Key: {x_internal_api_key}")
+        raise HTTPException(status_code=403, detail="Unauthorized")
     
-    if not OPENAI_API_KEY or "placeholder" in OPENAI_API_KEY:
-        logger.error("OpenAI API Key not configured")
-        raise HTTPException(status_code=500, detail="OpenAI API Key not configured")
+    if not settings.GEMINI_API_KEY and not settings.GROQ_API_KEY:
+        logger.error("No LLM API Keys configured")
+        raise HTTPException(status_code=500, detail="LLM API Key not configured")
 
     # 1. Fetch Challenge Context from Core Service
-    headers = {"X-Internal-API-Key": INTERNAL_API_KEY}
+    headers = {"X-Internal-API-Key": settings.INTERNAL_API_KEY}
     try:
-        url = f"{CORE_SERVICE_URL}/api/challenges/{request.challenge_slug}/context/"
+        url = f"{settings.CORE_SERVICE_URL}/api/challenges/{request.challenge_slug}/context/"
         logger.info(f"Fetching context from: {url}")
         
         response = requests.get(url, headers=headers, timeout=5)
         
         if response.status_code != 200:
              logger.error(f"Core service error: {response.status_code} - {response.text}")
-             # If Core returns 404, the challenge slug is likely wrong or missing context
              raise HTTPException(status_code=response.status_code, detail=f"Core service returned {response.status_code}")
         
         context_data = response.json()
@@ -134,11 +157,11 @@ def generate_hint(request: HintRequest):
         logger.error(f"Error connecting to Core Service: {e}")
         raise HTTPException(status_code=503, detail="Core service unavailable")
 
-    # 2. Construct Prompt
+    # 2. Extract Data
     description = context_data.get("description", "")
     test_code = context_data.get("test_code", "")
     
-    # 2. RAG: Search for similar challenges
+    # 3. RAG: Search for similar challenges
     logger.info("Performing similarity search for RAG...")
     similar_docs = []
     try:
@@ -148,7 +171,9 @@ def generate_hint(request: HintRequest):
     except Exception as e:
         logger.warning(f"RAG Search failed: {e}. Proceeding without extra context.")
 
-    # 3. Construct Prompt
+    # 4. Construct Prompt
+    rag_context = "\n\n".join(similar_docs) if similar_docs else "No similar patterns found."
+    
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an expert coding tutor. Your goal is to provide a helpful hint to a student who is stuck on a coding challenge. "
                    "Do NOT give the direct solution. Analyze their code and the challenge requirements. "
@@ -168,29 +193,38 @@ def generate_hint(request: HintRequest):
                  "Provide a Level {hint_level} hint:")
     ])
 
-    # 4. Call LLM
+    # 5. Call LLM
     try:
-        logger.info(f"Initializing LLM with model: {MODEL_NAME}")
-        llm = ChatOpenAI(
-            api_key=OPENAI_API_KEY, 
-            model=MODEL_NAME,
-            base_url=OPENAI_API_BASE
-        ) 
+        logger.info(f"Initializing LLM via Factory (Provider: {settings.LLM_PROVIDER})")
+        from llm_factory import LLMFactory
         
-        chain = prompt | llm | StrOutputParser()
-    
-        logger.info("Invoking LLM chain")
-        hint = chain.invoke({
-            "description": description,
-            "test_code": test_code,
-            "user_code": request.user_code,
-            "hint_level": request.hint_level,
-            "user_xp": request.user_xp,
-            "rag_context": "\n\n".join(similar_docs) if similar_docs else "No similar patterns found."
-        })
+        # Try primary provider
+        try:
+            llm = LLMFactory.get_llm()
+            chain = prompt | llm | StrOutputParser()
+            hint = chain.invoke({
+                "description": description,
+                "test_code": test_code,
+                "user_code": request.user_code,
+                "hint_level": request.hint_level,
+                "user_xp": request.user_xp,
+                "rag_context": rag_context
+            })
+        except Exception as e:
+            logger.warning(f"Primary LLM failed: {e}. Attempting fallback...")
+            llm = LLMFactory.get_fallback_llm()
+            chain = prompt | llm | StrOutputParser()
+            hint = chain.invoke({
+                "description": description,
+                "test_code": test_code,
+                "user_code": request.user_code,
+                "hint_level": request.hint_level,
+                "user_xp": request.user_xp,
+                "rag_context": rag_context
+            })
+            
         logger.info("Hint generated successfully")
+        return {"hint": hint}
     except Exception as e:
-         logger.error(f"LLM Error: {e}", exc_info=True)
+         logger.error(f"LLM Error (All providers failed): {e}", exc_info=True)
          raise HTTPException(status_code=500, detail="Error generating hint")
-
-    return {"hint": hint}

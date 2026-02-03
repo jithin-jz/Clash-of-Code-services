@@ -6,20 +6,20 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from rest_framework.views import APIView
 import logging
+import os
+import requests
 
 logger = logging.getLogger(__name__)
 
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 
-from .models import Challenge, Hint, UserProgress, UserCertificate
+from .models import Challenge, Hint, UserProgress
 from .serializers import (
     ChallengeSerializer,
     HintSerializer,
     UserProgressSerializer,
-    UserCertificateSerializer,
 )
 from .services import ChallengeService
-from .utils import generate_certificate_image
 from users.models import UserProfile
 from django.contrib.auth.models import User
 
@@ -182,12 +182,13 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                     
                     def trigger_ai():
                         ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
+                        internal_key = os.getenv("INTERNAL_API_KEY")
                         # Pass user_id so AI creates personalized content
                         url = f"{ai_url}/generate-level?level={current_order + 1}&user_id={user_id}"
+                        headers = {"X-Internal-API-Key": internal_key}
                         try:
-                            # Use internal key just in case, though usually optional for generate-level if not protected
-                            # But saving BACK to core requires it.
-                            requests.post(url, timeout=1) 
+                            # Use internal key to pass auth check
+                            requests.post(url, headers=headers, timeout=1) 
                         except requests.exceptions.RequestException:
                             pass # Expected, as we don't wait for response
                             
@@ -257,6 +258,79 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             )
 
     @extend_schema(
+        request=inline_serializer(
+            name="AIHintProxyRequest",
+            fields={
+                "user_code": serializers.CharField(),
+                "hint_level": serializers.IntegerField(),
+            }
+        ),
+        responses={
+            200: OpenApiTypes.OBJECT,
+            402: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+        },
+        description="Request an AI hint via Core Gateway (Auth & Payment Check).",
+    )
+    @decorators.action(detail=True, methods=["post"], url_path="ai-hint")
+    def ai_hint(self, request, slug=None):
+        """
+        Proxies the hint request to the AI service AFTER verifying permissions.
+        """
+        challenge = self.get_object()
+        user = request.user
+        
+        # 1. Check permissions (e.g., ai_assist_used)
+        progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
+        
+        # Allow if purchased OR for free (testing) - let's enforce purchase if flag is there
+        # For now, if they haven't purchased, we can either block or allow (if we want to be generous during dev)
+        # Detailed logic: User must have called 'purchase_ai_assist' first.
+        if not progress.ai_assist_used:
+             return Response(
+                {"error": "AI Assistance not purchased for this level."},
+                status=status.HTTP_402_PAYMENT_REQUIRED
+            )
+
+        # 2. Proxy to AI Service
+        ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
+        internal_key = os.getenv("INTERNAL_API_KEY")
+        
+        payload = {
+            "user_code": request.data.get("user_code", ""),
+            "challenge_slug": challenge.slug,
+            "hint_level": request.data.get("hint_level", 1),
+            "user_xp": user.profile.xp,
+        }
+        
+        headers = {
+            "X-Internal-API-Key": internal_key,
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            resp = requests.post(
+                f"{ai_url}/hints",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
+            if resp.status_code == 200:
+                return Response(resp.json())
+            else:
+                return Response(
+                    {"error": "AI Service Error", "details": resp.text},
+                    status=resp.status_code
+                )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"AI Connection Error: {e}")
+            return Response(
+                {"error": "AI Service Unavailable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+    @extend_schema(
         request=None,
         responses={
             200: inline_serializer(
@@ -308,103 +382,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             )
 
 
-class CertificateViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = UserCertificateSerializer
 
-    def list(self, request):
-        certs = UserCertificate.objects.filter(user=request.user)
-        serializer = UserCertificateSerializer(certs, many=True)
-        return Response(serializer.data)
-
-    @extend_schema(
-        request=None,
-        responses={
-            201: UserCertificateSerializer,
-            400: OpenApiTypes.OBJECT,
-        },
-        description="Claim certificate if course is completed.",
-    )
-    @decorators.action(detail=False, methods=["post"])
-    def claim(self, request):
-        """
-        Claim certificate if all levels are completed.
-        """
-        user = request.user
-
-        # Check if already has certificate
-        if UserCertificate.objects.filter(user=user).exists():
-            return Response(
-                {"error": "Certificate already claimed"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Check completion
-        total_challenges = Challenge.objects.count()
-        completed_challenges = UserProgress.objects.filter(
-            user=user, status=UserProgress.Status.COMPLETED
-        ).count()
-
-        if completed_challenges < total_challenges and total_challenges > 0:
-            return Response(
-                {
-                    "error": "Course not completed",
-                    "completed": completed_challenges,
-                    "total": total_challenges,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Generate Certificate
-        cert = UserCertificate(user=user)
-        image_file = generate_certificate_image(cert)
-        cert.certificate_image.save(image_file.name, image_file)
-        cert.save()
-
-        serializer = UserCertificateSerializer(cert)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class VerifyCertificateView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        responses={
-            200: inline_serializer(
-                name="CertificateVerificationResponse",
-                fields={
-                    "valid": serializers.BooleanField(),
-                    "certificate": UserCertificateSerializer(),
-                    "user": serializers.CharField(),
-                    "issued_at": serializers.DateTimeField(),
-                }
-            ),
-            404: OpenApiTypes.OBJECT,
-            400: OpenApiTypes.OBJECT,
-        },
-        description="Verify a certificate by ID.",
-    )
-    def get(self, request, certificate_id):
-        try:
-            cert = UserCertificate.objects.get(id=certificate_id)
-            serializer = UserCertificateSerializer(cert)
-            return Response(
-                {
-                    "valid": True,
-                    "certificate": serializer.data,
-                    "user": cert.user.username,
-                    "issued_at": cert.issued_at,
-                }
-            )
-        except UserCertificate.DoesNotExist:
-            return Response(
-                {"valid": False, "error": "Invalid Certificate ID"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as e:
-            return Response(
-                {"valid": False, "error": str(e)}, status=status.HTTP_400_BAD_REQUEST
-            )
 
 
 class LeaderboardView(APIView):

@@ -8,7 +8,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 @shared_task
 def update_leaderboard_cache():
     """

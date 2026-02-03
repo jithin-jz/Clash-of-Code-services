@@ -12,6 +12,7 @@ try:
 except ImportError:
     pass
 import chromadb
+from config import settings
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -19,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 # Config
 # Force localhost for host-side indexing since docker 'core' dns is not available here
-CORE_SERVICE_URL = "http://localhost"
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
-CHROMA_PATH = "chroma_db"
+CORE_SERVICE_URL = settings.CORE_SERVICE_URL
+INTERNAL_API_KEY = settings.INTERNAL_API_KEY
+CHROMA_PATH = settings.CHROMA_PATH
 
 def index_challenges():
     logger.info("Starting challenge indexing...")
