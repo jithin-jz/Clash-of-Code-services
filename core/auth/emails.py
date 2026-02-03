@@ -10,7 +10,7 @@ def send_welcome_email(user):
     """
     Send a minimal welcome email to a newly registered user.
     """
-    subject = "Welcome to Code of Clans"
+    subject = "Welcome to Clash of Code"
 
     try:
         context = {"user": user}
@@ -18,17 +18,17 @@ def send_welcome_email(user):
         html_message = render_to_string("emails/welcome.html", context)
 
         plain_message = (
-            f"Welcome to Code of Clans.\n\n"
+            f"Welcome to Clash of Code.\n\n"
             f"Hi {user.first_name or user.username},\n\n"
             "Your account is ready.\n"
             "Start with your first challenge.\n\n"
-            "— Code of Clans"
+            "— Clash of Code"
         )
 
         send_mail(
             subject=subject,
             message=plain_message,
-            from_email="Code of Clans <noreply@codeofclans.com>",
+            from_email="Clash of Code <noreply@codeofclans.com>",
             recipient_list=[user.email],
             html_message=html_message,
             fail_silently=False,
@@ -44,7 +44,7 @@ def send_otp_email(email, otp):
     """
     Send an OTP email for login verification.
     """
-    subject = "Your Login Code - Code of Clans"
+    subject = "Your Login Code - Clash of Code"
 
     try:
         context = {"otp": otp}
@@ -52,7 +52,7 @@ def send_otp_email(email, otp):
         html_message = render_to_string("emails/otp_login.html", context)
 
         plain_message = (
-            f"Your Code of Clans login code is {otp}.\n\n"
+            f"Your Clash of Code login code is {otp}.\n\n"
             "This code expires in 10 minutes.\n"
             "If you didn’t request this, ignore this email."
         )
@@ -60,7 +60,7 @@ def send_otp_email(email, otp):
         send_mail(
             subject=subject,
             message=plain_message,
-            from_email="Code of Clans <noreply@codeofclans.com>",
+            from_email="Clash of Code <noreply@codeofclans.com>",
             recipient_list=[email],
             html_message=html_message,
             fail_silently=False,

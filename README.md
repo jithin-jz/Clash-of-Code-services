@@ -1,6 +1,6 @@
-# Code of Clans - Services
+# Clash of Code - Services
 
-Microservices architecture for the Code of Clans platform.
+Microservices architecture for the Clash of Code platform.
 
 ## Architecture
 

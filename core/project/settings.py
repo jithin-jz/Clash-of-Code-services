@@ -180,8 +180,8 @@ CSRF_TRUSTED_ORIGINS = [
 # drf_spectacular
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Code of Clans API",
-    "DESCRIPTION": "API documentation for the Code of Clans gamification platform",
+    "TITLE": "Clash of Code API",
+    "DESCRIPTION": "API documentation for the Clash of Code gamification platform",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }

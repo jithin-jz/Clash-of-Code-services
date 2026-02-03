@@ -1,6 +1,6 @@
-# 🐍 Code of Clans - Backend
+# 🐍 Clash of Code - Backend
 
-The robust API and real-time socket server for **Code of Clans**. Handles authentication, gamification logic, and global chat messaging.
+The robust API and real-time socket server for **Clash of Code**. Handles authentication, gamification logic, and global chat messaging.
 
 ## ⚡ Technologies
 
