@@ -125,7 +125,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         data["unlocked_hints"] = HintSerializer(
             details["unlocked_hints"], many=True
         ).data
-        data["ai_assist_used"] = details["ai_assist_used"]
+        data["ai_hints_purchased"] = details["ai_hints_purchased"]
 
         return Response(data)
 
@@ -206,6 +206,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 fields={
                     "status": serializers.CharField(),
                     "remaining_xp": serializers.IntegerField(),
+                    "hints_purchased": serializers.IntegerField(),
                 }
             ),
             402: OpenApiTypes.OBJECT,
@@ -217,8 +218,13 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         challenge = self.get_object()
         try:
             remaining_xp = ChallengeService.purchase_ai_assist(request.user, challenge)
+            progress, _ = UserProgress.objects.get_or_create(user=request.user, challenge=challenge)
             return Response(
-                {"status": "purchased", "remaining_xp": remaining_xp},
+                {
+                    "status": "purchased", 
+                    "remaining_xp": remaining_xp,
+                    "hints_purchased": progress.ai_hints_purchased
+                },
                 status=status.HTTP_200_OK,
             )
         except PermissionError:
@@ -280,15 +286,14 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         challenge = self.get_object()
         user = request.user
         
-        # 1. Check permissions (e.g., ai_assist_used)
+        # 1. Check permissions (e.g., ai_hints_purchased)
         progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
         
-        # Allow if purchased OR for free (testing) - let's enforce purchase if flag is there
-        # For now, if they haven't purchased, we can either block or allow (if we want to be generous during dev)
-        # Detailed logic: User must have called 'purchase_ai_assist' first.
-        if not progress.ai_assist_used:
+        hint_level = int(request.data.get("hint_level", 1))
+        
+        if progress.ai_hints_purchased < hint_level:
              return Response(
-                {"error": "AI Assistance not purchased for this level."},
+                {"error": f"AI Hint Level {hint_level} not purchased for this level."},
                 status=status.HTTP_402_PAYMENT_REQUIRED
             )
 

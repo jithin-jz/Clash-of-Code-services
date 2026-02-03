@@ -16,6 +16,11 @@ SKILL_MATRIX = {
     13: {"topic": "String Manipulation", "concepts": ["slicing", "upper/lower", "find"], "difficulty": "Intermediate"},
     14: {"topic": "Nested Loops", "concepts": ["loops within loops", "2D thinking"], "difficulty": "Intermediate"},
     15: {"topic": "Dictionary Basics", "concepts": ["key-value pairs", "lookup"], "difficulty": "Intermediate"},
+    16: {"topic": "Functions & Scopes", "concepts": ["def", "parameters", "return values"], "difficulty": "Intermediate"},
+    17: {"topic": "Intro to OOP", "concepts": ["class", "init", "self", "methods"], "difficulty": "Advanced"},
+    18: {"topic": "OOP: Inheritance", "concepts": ["subclasses", "super()", "method overriding"], "difficulty": "Advanced"},
+    19: {"topic": "OOP: Encapsulation", "concepts": ["private members", "getters/setters", "@property"], "difficulty": "Advanced"},
+    20: {"topic": "OOP: Polymorphism", "concepts": ["duck typing", "abstract base classes", "interface design"], "difficulty": "Advanced"},
     # Higher levels will be procedurally derived from these foundations
 }
 

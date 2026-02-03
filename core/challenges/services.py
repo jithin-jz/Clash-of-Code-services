@@ -1,5 +1,5 @@
 from django.utils import timezone
-from django.db.models import Max
+from django.db.models import Max, Q
 from .models import Challenge, UserProgress, Hint
 from users.models import UserProfile
 from xpoint.services import XPService
@@ -71,7 +71,7 @@ class ChallengeService:
             "status": progress.status,
             "stars": progress.stars,
             "unlocked_hints": progress.hints_unlocked.all(),
-            "ai_assist_used": progress.ai_assist_used,
+            "ai_hints_purchased": progress.ai_hints_purchased,
         }
 
     @staticmethod
@@ -86,7 +86,7 @@ class ChallengeService:
 
         # Calculate Stars
         stars = 3
-        if progress.ai_assist_used or progress.hints_unlocked.exists():
+        if progress.ai_hints_purchased > 0 or progress.hints_unlocked.exists():
             stars -= 1
         stars = max(1, stars)  # Minimum 1 star
 
@@ -141,22 +141,59 @@ class ChallengeService:
     @staticmethod
     def purchase_ai_assist(user, challenge):
         """
-        Purchases AI assistance, deducting XP.
-        Raises PermissionError if insufficient XP.
+        Purchases the next AI hint level, deducting progressive XP.
+        1st hint: 10 XP
+        2nd hint: 20 XP
+        ...
         """
-        COST = 10
-        if user.profile.xp >= COST:
-            XPService.add_xp(user, -COST, source="ai_assist")
+        progress, _ = UserProgress.objects.get_or_create(
+            user=user, challenge=challenge
+        )
+        
+        current_count = progress.ai_hints_purchased
+        cost = 10 * (current_count + 1)
+        
+        if user.profile.xp >= cost:
+            XPService.add_xp(user, -cost, source="ai_assist")
 
-            progress, _ = UserProgress.objects.get_or_create(
-                user=user, challenge=challenge
-            )
-            progress.ai_assist_used = True
+            progress.ai_hints_purchased += 1
             progress.save()
 
             return user.profile.xp
         else:
             raise PermissionError("Insufficient XP")
+
+    @staticmethod
+    def create_initial_challenge(user):
+        """
+        Creates the Level 1 'Hello World' challenge for a new user.
+        """
+        # Ensure we don't duplicate Level 1 (check both global and user-specific)
+        if Challenge.objects.filter(
+            Q(created_for_user=user) | Q(created_for_user__isnull=True),
+            order=1
+        ).exists():
+            return None
+
+        challenge = Challenge.objects.create(
+            title="Level 1: Hello World",
+            slug=f"level-1-hello-world-{user.username}",
+            description="Welcome to Clash of Code! Your first task is to print 'Hello, World!' to the console.",
+            initial_code="print(\"\")",
+            test_code="assert \"Hello, World!\" in output, \"You must print 'Hello, World!'\"",
+            order=1,
+            created_for_user=user,
+            xp_reward=50
+        )
+
+        # Create implicit progress record
+        UserProgress.objects.get_or_create(
+            user=user,
+            challenge=challenge,
+            defaults={"status": UserProgress.Status.UNLOCKED}
+        )
+
+        return challenge
 
     @staticmethod
     def _get_next_level_slug(current_challenge):

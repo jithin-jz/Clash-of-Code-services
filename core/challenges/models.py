@@ -76,8 +76,8 @@ class UserProgress(models.Model):
         max_length=20, choices=Status.choices, default=Status.LOCKED
     )
     stars = models.IntegerField(default=0, help_text="0-3 stars based on performance")
-    ai_assist_used = models.BooleanField(
-        default=False, help_text="True if user purchased AI help."
+    ai_hints_purchased = models.IntegerField(
+        default=0, help_text="Number of AI hints purchased for this level."
     )
     hints_unlocked = models.ManyToManyField(
         Hint, blank=True, related_name="unlocked_by"
