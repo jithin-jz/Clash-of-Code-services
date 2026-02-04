@@ -85,10 +85,35 @@ class ChallengeService:
         progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
 
         # Calculate Stars
+        # Calculate Stars
+        # Option 3 (Balanced):
+        # 0-1 Hints: 3 Stars (First one is free/safe)
+        # 2 Hints: 2 Stars
+        # 3 Hints: 1 Star
         stars = 3
-        if progress.ai_hints_purchased > 0 or progress.hints_unlocked.exists():
-            stars -= 1
-        stars = max(1, stars)  # Minimum 1 star
+        
+        # Count total hints used (AI + Static) 
+        # Assuming we want to treat them cumulatively, or just focus on AI as requested.
+        # Let's focus on AI hints mainly but handle static as "1 usage" for simplicity if mixed.
+        # For now, strict AI logic as requested:
+        
+        usage_count = progress.ai_hints_purchased
+        
+        if usage_count >= 3:
+            stars = 1
+        elif usage_count == 2:
+            stars = 2
+        else:
+            # 0 or 1 AI hint
+            stars = 3
+            
+            # Fallback: if they used static hints but 0 AI hints, maybe penalize?
+            # Existing logic was: strict penalty. 
+            # Let's align static hints to be "safe" for the first one too if we want consistency.
+            if usage_count == 0 and progress.hints_unlocked.count() > 1:
+                 stars = 2
+        
+        stars = max(1, stars)
 
         newly_completed = progress.status != UserProgress.Status.COMPLETED
 
@@ -149,6 +174,9 @@ class ChallengeService:
         progress, _ = UserProgress.objects.get_or_create(
             user=user, challenge=challenge
         )
+        
+        if progress.ai_hints_purchased >= 3:
+            raise PermissionError("Maximum of 3 AI hints allowed for this challenge.")
         
         current_count = progress.ai_hints_purchased
         cost = 10 * (current_count + 1)

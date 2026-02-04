@@ -1,44 +1,41 @@
-import os
-from dotenv import load_dotenv
+from typing import List, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
-load_dotenv()
-
-class Config:
+class Settings(BaseSettings):
     # Service URLs
-    CORE_SERVICE_URL = os.getenv("CORE_SERVICE_URL")
-    PISTON_URL = os.getenv("PISTON_URL")
+    CORE_SERVICE_URL: str
     
     # API Keys & Auth
-    INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    # API Keys & Auth
+    INTERNAL_API_KEY: str
+    GROQ_API_KEY: Optional[str] = None
     
     # LLM Settings
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq") # groq, gemini
-    MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-    OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+    LLM_PROVIDER: str = "groq" 
+    MODEL_NAME: str = "llama-3.3-70b-versatile"
+    OPENAI_API_BASE: str = "https://api.groq.com/openai/v1"
     
     # RAG Settings
-    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    CHROMA_PATH = os.getenv("CHROMA_PATH", "chroma_db")
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    CHROMA_SERVER_HOST: str = "chroma"
+    CHROMA_SERVER_HTTP_PORT: int = 8000
     
     # Security
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost").split(",")
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost"]
 
-    @classmethod
-    def validate(cls):
-        missing = []
-        if not cls.CORE_SERVICE_URL: missing.append("CORE_SERVICE_URL")
-        if not cls.PISTON_URL: missing.append("PISTON_URL")
-        if not cls.INTERNAL_API_KEY: missing.append("INTERNAL_API_KEY")
-        
-        # Require at least one LLM provider
-        if not cls.GEMINI_API_KEY and not cls.GROQ_API_KEY:
-            missing.append("LLM API Key (GEMINI_API_KEY or GROQ_API_KEY)")
-        
-        if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-settings = Config()
-settings.validate()
+    @field_validator("CORS_ORIGINS", mode="before")
+    def split_cors_origins(cls, v):
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",")]
+        return v
+
+    def validate_keys(self):
+        if not self.GROQ_API_KEY:
+            raise ValueError("Missing LLM API Key: GROQ_API_KEY must be set")
+
+settings = Settings()
+settings.validate_keys()
 

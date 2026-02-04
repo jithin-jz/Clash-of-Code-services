@@ -1,6 +1,6 @@
-import requests
 import logging
-import time
+import asyncio
+import httpx
 from auto_generator import AutoGenerator
 
 from config import settings
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 CORE_SERVICE_URL = settings.CORE_SERVICE_URL
 INTERNAL_API_KEY = settings.INTERNAL_API_KEY
 
-def run_big_bang(target_levels=10):
+async def run_big_bang(target_levels=10):
     """
     The Orchestrator: Wipes the DB and generates levels from 1 to target_levels.
     """
@@ -25,36 +25,38 @@ def run_big_bang(target_levels=10):
     logger.info(f"Starting Big Bang Generation for {target_levels} levels...")
     
     success_count = 0
-    for i in range(1, target_levels + 1):
-        try:
-            logger.info(f"--- Processing Level {i} ---")
-            challenge_json = generator.generate_level(i)
-            
-            # 2. POST TO CORE
-            # We need to make sure the Core service has a way to receive this without a CSRF/Auth token
-            # We'll use the Internal-API-Key
-            headers = {
-                "X-Internal-API-Key": INTERNAL_API_KEY,
-                "Content-Type": "application/json"
-            }
-            
-            # Note: We need to add this endpoint to ChallengeViewSet or use the standard one with internal bypass
-            url = f"{CORE_SERVICE_URL}/api/challenges/" # Standard create endpoint
-            
-            # Add order and slug explicitly if not in JSON
-            challenge_json["order"] = i
-            
-            response = requests.post(url, json=challenge_json, headers=headers)
-            
-            if response.status_code in [201, 200]:
-                logger.info(f"Level {i} SAVED to Core Service.")
-                success_count += 1
-            else:
-                logger.error(f"Failed to save Level {i}: {response.status_code} - {response.text}")
+    # We can use a shared client for all requests
+    async with httpx.AsyncClient() as client:
+        for i in range(1, target_levels + 1):
+            try:
+                logger.info(f"--- Processing Level {i} ---")
+                challenge_json = await generator.generate_level(i)
                 
-        except Exception as e:
-            logger.error(f"Critical error in Big Bang at Level {i}: {str(e)}")
-            continue
+                # 2. POST TO CORE
+                # We need to make sure the Core service has a way to receive this without a CSRF/Auth token
+                # We'll use the Internal-API-Key
+                headers = {
+                    "X-Internal-API-Key": INTERNAL_API_KEY,
+                    "Content-Type": "application/json"
+                }
+                
+                # Note: We need to add this endpoint to ChallengeViewSet or use the standard one with internal bypass
+                url = f"{CORE_SERVICE_URL}/api/challenges/" # Standard create endpoint
+                
+                # Add order and slug explicitly if not in JSON
+                challenge_json["order"] = i
+                
+                response = await client.post(url, json=challenge_json, headers=headers)
+                
+                if response.status_code in [201, 200]:
+                    logger.info(f"Level {i} SAVED to Core Service.")
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to save Level {i}: {response.status_code} - {response.text}")
+                    
+            except Exception as e:
+                logger.error(f"Critical error in Big Bang at Level {i}: {str(e)}")
+                continue
 
     logger.info(f"Big Bang COMPLETE. {success_count}/{target_levels} levels created.")
 
@@ -62,4 +64,4 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     # Run the first 5 levels as a test
-    run_big_bang(5)
+    asyncio.run(run_big_bang(5))

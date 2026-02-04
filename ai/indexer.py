@@ -1,16 +1,10 @@
-import os
-import requests
+import asyncio
+import httpx
 from dotenv import load_dotenv
 load_dotenv()
 import logging
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-try:
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
 import chromadb
 from config import settings
 
@@ -22,9 +16,10 @@ logger = logging.getLogger(__name__)
 # Force localhost for host-side indexing since docker 'core' dns is not available here
 CORE_SERVICE_URL = settings.CORE_SERVICE_URL
 INTERNAL_API_KEY = settings.INTERNAL_API_KEY
-CHROMA_PATH = settings.CHROMA_PATH
+CHROMA_SERVER_HOST = settings.CHROMA_SERVER_HOST
+CHROMA_SERVER_HTTP_PORT = settings.CHROMA_SERVER_HTTP_PORT
 
-def index_challenges():
+async def index_challenges():
     logger.info("Starting challenge indexing...")
     logger.info(f"Using key: {INTERNAL_API_KEY}")
     
@@ -32,13 +27,14 @@ def index_challenges():
     headers = {"X-Internal-API-Key": INTERNAL_API_KEY}
     try:
         url = f"{CORE_SERVICE_URL}/api/challenges/internal-list/"
-        response = requests.get(url, headers=headers, timeout=5)
-        if response.status_code != 200:
-            logger.error(f"Failed to fetch challenges: {response.status_code}")
-            return
-        
-        challenges = response.json()
-        logger.info(f"Fetched {len(challenges)} challenges")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=10)
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch challenges: {response.status_code}")
+                return
+            
+            challenges = response.json()
+            logger.info(f"Fetched {len(challenges)} challenges")
     except Exception as e:
         logger.error(f"Error fetching challenges: {e}")
         return
@@ -58,15 +54,26 @@ def index_challenges():
     # 3. Initialize Embeddings and Vector DB
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     
-    vector_db = Chroma.from_texts(
-        texts=documents,
-        embedding=embeddings,
-        metadatas=metadatas,
-        ids=ids,
-        persist_directory=CHROMA_PATH
+    # Use HttpClient to connect to the separate Chroma container
+    vector_db = Chroma(
+        client=chromadb.HttpClient(host=CHROMA_SERVER_HOST, port=CHROMA_SERVER_HTTP_PORT),
+        embedding_function=embeddings,
+        collection_name="challenges"
     )
     
-    logger.info(f"Indexing complete. {len(documents)} documents indexed.")
+    # 4. Add documents (This might be sync in Langchain Chroma wrapper, or we wrap it)
+    # The current LangChain Chroma implementation is synchronous for add_texts
+    try:
+        vector_db.add_texts(
+            texts=documents,
+            metadatas=metadatas,
+            ids=ids
+        )
+        logger.info(f"Indexing complete. {len(documents)} documents indexed.")
+    except Exception as e:
+        logger.error(f"Error adding to Chroma: {e}")
 
 if __name__ == "__main__":
-    index_challenges()
+    asyncio.run(index_challenges())
+
+

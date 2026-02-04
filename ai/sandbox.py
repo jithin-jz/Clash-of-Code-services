@@ -1,106 +1,102 @@
 import logging
-from typing import Dict, Any, Optional
-import requests
-from config import settings
+import asyncio
+import ast
+import tempfile
+import os
+import shutil
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-PISTON_URL = settings.PISTON_URL
+# Security: Block dangerous imports and builtins
+BLOCKED_IMPORTS = {'os', 'sys', 'subprocess', 'shutil', 'importlib', 'socket', 'requests', 'urllib', 'http', 'ftplib'}
+BLOCKED_BUILTINS = {'exec', 'eval', 'compile', 'open', 'input'}
 
-def ensure_python_runtime() -> bool:
-    """
-    Checks if Python 3.10 is installed in Piston, and installs it if missing.
-    """
+class SecurityAnalyzer(ast.NodeVisitor):
+    def __init__(self):
+        self.unsafe_found = []
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            if alias.name.split('.')[0] in BLOCKED_IMPORTS:
+                self.unsafe_found.append(f"Importing '{alias.name}' is not allowed.")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        if node.module and node.module.split('.')[0] in BLOCKED_IMPORTS:
+            self.unsafe_found.append(f"Importing from '{node.module}' is not allowed.")
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name):
+            if node.func.id in BLOCKED_BUILTINS:
+                self.unsafe_found.append(f"Calling function '{node.func.id}' is not allowed.")
+        self.generic_visit(node)
+
+def is_safe_code(code: str) -> Dict[str, Any]:
     try:
-        # Check available runtimes
-        resp = requests.get(f"{PISTON_URL}/api/v2/runtimes")
-        if resp.status_code != 200:
-            logger.error(f"Piston unavailable: {resp.status_code}")
-            return False
-            
-        runtimes = resp.json()
-        for r in runtimes:
-            if r["language"] == "python" and "3.10" in r["version"]:
-                return True
+        tree = ast.parse(code)
+        analyzer = SecurityAnalyzer()
+        analyzer.visit(tree)
         
-        # Install if missing
-        logger.info("Installing Python 3.10 runtime in Piston...")
-        install_resp = requests.post(f"{PISTON_URL}/api/v2/packages", json={
-            "language": "python",
-            "version": "3.10.0"
-        })
-        if install_resp.status_code == 200:
-            logger.info("Python runtime installed successfully.")
-            return True
-        else:
-            logger.error(f"Failed to install runtime: {install_resp.text}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error checking Piston runtime: {e}")
-        return False
+        if analyzer.unsafe_found:
+             return {"safe": False, "error": "; ".join(analyzer.unsafe_found)}
+        return {"safe": True, "error": None}
+    except SyntaxError as e:
+        return {"safe": False, "error": f"Syntax Error: {e}"}
 
-def verify_challenge(user_code: str, test_code: str) -> Dict[str, Any]:
+async def ensure_python_runtime() -> bool:
+    # Always true for local execution
+    return True
+
+async def verify_challenge(user_code: str, test_code: str) -> Dict[str, Any]:
     """
-    Executes user code against test code safely using Piston.
-    
-    Args:
-        user_code: The student's code.
-        test_code: The test assertions.
-        
-    Returns:
-        Dict: {"passed": bool, "output": str, "error": str}
+    Executes user code against test code locally in a subprocess.
     """
-    # 1. Combine code and tests
-    full_code = f"{user_code}\n\n{test_code}"
-    
-    # 2. Check/Ensure Runtime
-    if not ensure_python_runtime():
-         return {
-            "passed": False, 
-            "output": "Execution Environment Unavailable", 
-            "error": "Sandbox not ready"
+    # 1. Security Check
+    security_check = is_safe_code(user_code)
+    if not security_check["safe"]:
+        return {
+            "passed": False,
+            "output": "Security Violation: Unsafe Code Detected",
+            "error": security_check["error"]
         }
 
-    # 3. Execute via Piston API
-    payload = {
-        "language": "python",
-        "version": "3.10.0",
-        "files": [
-            {
-                "name": "challenge.py",
-                "content": full_code
-            }
-        ],
-        "stdin": "",
-        "args": [],
-        "compile_timeout": 10000,
-        "run_timeout": 5000,
-        "memory_limit": 128 * 1024 * 1024,
-    }
+    # 2. Combine code
+    full_code = f"{user_code}\n\n{test_code}"
+    
+    # 3. Write to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tmp_file:
+        tmp_file_path = tmp_file.name
+        tmp_file.write(full_code)
 
     try:
-        response = requests.post(f"{PISTON_URL}/api/v2/execute", json=payload, timeout=10)
-        result = response.json()
-        
-        run_stage = result.get("run", {})
-        stdout = run_stage.get("stdout", "")
-        stderr = run_stage.get("stderr", "")
-        output = stdout + stderr
+        # 4. Execute in Subprocess
+        # Run with a short timeout (e.g., 5 seconds)
+        proc = await asyncio.create_subprocess_exec(
+            "python", tmp_file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
 
-        if response.status_code != 200:
-             return {"passed": False, "output": output, "error": f"Piston Error {response.status_code}"}
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            output = stdout.decode().strip() + "\n" + stderr.decode().strip()
+            exit_code = proc.returncode
 
-        # If exit code is 0, tests passed (assuming normal unittest/assert behavior)
-        exit_code = run_stage.get("run", {}).get("code", 0) if "run" in result else 1
-        # Re-check run_stage keys, usually 'code' is directly in run_stage
-        exit_code = run_stage.get("code", 0)
+            if exit_code == 0:
+                return {"passed": True, "output": output, "error": None}
+            else:
+                return {"passed": False, "output": output, "error": "Tests Failed"}
 
-        if exit_code == 0:
-            return {"passed": True, "output": output, "error": None}
-        else:
-             return {"passed": False, "output": output, "error": "Tests Failed"}
-             
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"passed": False, "output": "Execution Timed Out", "error": "Timeout (5s limit)"}
+            
     except Exception as e:
-        logger.error(f"Sandbox execution error: {e}")
+        logger.error(f"Local sandbox execution error: {e}")
         return {"passed": False, "output": "", "error": str(e)}
+    finally:
+        # Cleanup
+        if os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)

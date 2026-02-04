@@ -2,12 +2,12 @@ import os
 import sys
 import logging
 from typing import Optional
+import httpx
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import requests
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -18,17 +18,14 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from config import settings
 # Lazy imports for big_bang and auto_generator to avoid potential circular/init issues if any
 from big_bang import run_big_bang
+from prompts import HINT_GENERATION_SYSTEM_PROMPT, HINT_GENERATION_USER_TEMPLATE
 
 # Configure Logging
-logging.basicConfig(level=logging.INFO)
+from logger_config import setup_logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
-# ChromaDB workaround for some systems
-try:
-    __import__('pysqlite3')
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
+
 
 load_dotenv()
 
@@ -50,7 +47,14 @@ app.add_middleware(
 # Initialize RAG Components
 # Using local embedding model to save API costs
 embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
-vector_db = Chroma(persist_directory=settings.CHROMA_PATH, embedding_function=embeddings)
+
+# Connect to stand-alone ChromaDB server
+import chromadb
+vector_db = Chroma(
+    client=chromadb.HttpClient(host=settings.CHROMA_SERVER_HOST, port=settings.CHROMA_SERVER_HTTP_PORT),
+    embedding_function=embeddings,
+    collection_name="challenges"
+)
 
 # --- Models ---
 class HintRequest(BaseModel):
@@ -94,13 +98,14 @@ async def generate_single_level(
     if x_internal_api_key != settings.INTERNAL_API_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    def _run_single(lvl, uid):
+    async def _run_single(lvl, uid):
         from auto_generator import AutoGenerator
         
         logger.info(f"Generating Single Level {lvl} for User {uid}...")
         try:
             generator = AutoGenerator()
-            challenge_json = generator.generate_level(lvl, user_id=uid)
+            # AWAIT the async generator
+            challenge_json = await generator.generate_level(lvl, user_id=uid)
             
             headers = {
                 "X-Internal-API-Key": settings.INTERNAL_API_KEY,
@@ -111,11 +116,13 @@ async def generate_single_level(
             if uid:
                 challenge_json["created_for_user_id"] = uid
             
-            response = requests.post(url, json=challenge_json, headers=headers)
-            if response.status_code in [200, 201]:
-                logger.info(f"Level {lvl} generated and saved successfully for user {uid}.")
-            else:
-                logger.error(f"Failed to save Level {lvl}: {response.text}")
+            # Use Async Client
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=challenge_json, headers=headers)
+                if response.status_code in [200, 201]:
+                    logger.info(f"Level {lvl} generated and saved successfully for user {uid}.")
+                else:
+                    logger.error(f"Failed to save Level {lvl}: {response.text}")
         except Exception as e:
             logger.error(f"Error generating single level {lvl}: {e}")
 
@@ -123,7 +130,7 @@ async def generate_single_level(
     return {"message": f"Generation started for level {level}"}
 
 @app.post("/hints")
-def generate_hint(
+async def generate_hint(
     request: HintRequest, 
     x_internal_api_key: Optional[str] = Header(None, alias="X-Internal-API-Key")
 ):
@@ -135,7 +142,7 @@ def generate_hint(
         logger.warning(f"Unauthorized hint request. Key: {x_internal_api_key}")
         raise HTTPException(status_code=403, detail="Unauthorized")
     
-    if not settings.GEMINI_API_KEY and not settings.GROQ_API_KEY:
+    if not settings.GROQ_API_KEY:
         logger.error("No LLM API Keys configured")
         raise HTTPException(status_code=500, detail="LLM API Key not configured")
 
@@ -145,15 +152,16 @@ def generate_hint(
         url = f"{settings.CORE_SERVICE_URL}/api/challenges/{request.challenge_slug}/context/"
         logger.info(f"Fetching context from: {url}")
         
-        response = requests.get(url, headers=headers, timeout=5)
-        
-        if response.status_code != 200:
-             logger.error(f"Core service error: {response.status_code} - {response.text}")
-             raise HTTPException(status_code=response.status_code, detail=f"Core service returned {response.status_code}")
-        
-        context_data = response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=5)
+            
+            if response.status_code != 200:
+                 logger.error(f"Core service error: {response.status_code} - {response.text}")
+                 raise HTTPException(status_code=response.status_code, detail=f"Core service returned {response.status_code}")
+            
+            context_data = response.json()
         logger.info("Context fetched successfully")
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Error connecting to Core Service: {e}")
         raise HTTPException(status_code=503, detail="Core service unavailable")
 
@@ -162,10 +170,15 @@ def generate_hint(
     test_code = context_data.get("test_code", "")
     
     # 3. RAG: Search for similar challenges
+    # Chroma/LangChain vectorstore operations are currently often synchronous or wrapped.
+    # We will assume they are fast enough for now or run them in a thread if needed.
+    # ideally: await vector_db.asimilarity_search(...)
     logger.info("Performing similarity search for RAG...")
     similar_docs = []
     try:
         query = f"Challenge: {description}\nUser Code: {request.user_code}"
+        # using standard sync method for now as chroma python client is sync-heavy
+        # wrapping in loop.run_in_executor might be better but let's keep it simple for this pass
         results = vector_db.similarity_search(query, k=2)
         similar_docs = [doc.page_content for doc in results if doc.metadata.get("slug") != request.challenge_slug]
     except Exception as e:
@@ -175,20 +188,8 @@ def generate_hint(
     rag_context = "\n\n".join(similar_docs) if similar_docs else "No similar patterns found."
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an expert coding tutor. Provide strictly technical and concise hints. "
-                   "Do NOT use introductory phrases, pleasantries, or follow-up questions. "
-                   "Identify the specific logic error or syntax issue and explain it directly. "
-                   "\n\nCONTEXT ENRICHMENT (RAG):\n"
-                   "Patterns from similar challenges:\n"
-                   "{rag_context}\n\n"
-                   "ADAPTIVITY RULES:\n"
-                   "1. Skill Level: {user_xp} XP. Adjust technical depth (0-500: Basic, 501-2000: Intermediate, 2000+: Advanced). "
-                   "2. Progressive Depth: Level {hint_level} (1: Strategy/Vague, 2: Logic/Moderate, 3: Implementation/Specific). "
-                   "Level 1: Nudge towards the right concept. Level 3: Point to the specific line or logic block."),
-        ("user", "Challenge Description:\n{description}\n\n"
-                 "Test Code:\n{test_code}\n\n"
-                 "Student's Code:\n{user_code}\n\n"
-                 "Provide a Level {hint_level} hint:")
+        ("system", HINT_GENERATION_SYSTEM_PROMPT),
+        ("user", HINT_GENERATION_USER_TEMPLATE)
     ])
 
     # 5. Call LLM
@@ -200,7 +201,7 @@ def generate_hint(
         try:
             llm = LLMFactory.get_llm()
             chain = prompt | llm | StrOutputParser()
-            hint = chain.invoke({
+            hint = await chain.ainvoke({
                 "description": description,
                 "test_code": test_code,
                 "user_code": request.user_code,
@@ -212,7 +213,7 @@ def generate_hint(
             logger.warning(f"Primary LLM failed: {e}. Attempting fallback...")
             llm = LLMFactory.get_fallback_llm()
             chain = prompt | llm | StrOutputParser()
-            hint = chain.invoke({
+            hint = await chain.ainvoke({
                 "description": description,
                 "test_code": test_code,
                 "user_code": request.user_code,
