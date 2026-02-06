@@ -89,12 +89,18 @@ User writes a function. Test calls it and checks return value.
   "xp_reward": 50
 }}
 
+## CRITICAL RESTRICTIONS
+- NEVER use input() function - it is BLOCKED in the execution environment
+- NEVER require external imports (os, sys, requests, etc.)
+- All challenges must be self-contained and use only Python builtins
+
 ## RULES
 1. Keep descriptions SHORT and SIMPLE
 2. Level 1-2: User just prints, no functions needed
 3. Level 3+: User may write variables or functions
 4. Test errors must be helpful
 5. NO "Do not use imports" notes - keep it clean
+6. Hardcode all test values - do NOT read from user input
 """
 
 HINT_GENERATION_SYSTEM_PROMPT = """You are an expert coding tutor. Provide strictly technical and concise hints. DO NOT use introductory phrases, pleasantries, or follow-up questions. Identify the specific logic error or syntax issue and explain it directly.

@@ -35,10 +35,14 @@ class CreateOrderView(views.APIView):
             order = client.order.create(data=data)
 
             XP_PACKAGES_MAP = {
+                49: 50,
                 99: 100,
+                199: 200,
                 249: 250,
                 499: 500,
+                749: 800,
                 999: 1000,
+                1999: 2500,
             }
 
             if amount_inr not in XP_PACKAGES_MAP:

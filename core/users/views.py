@@ -114,32 +114,34 @@ class ProfileDetailView(APIView):
     def get(self, request, username):
         # Try to get from cache first
         cache_key = f'profile:{username}'
-        cached_data = cache.get(cache_key)
+        data = cache.get(cache_key)
         
-        if cached_data:
-            return Response(cached_data, status=status.HTTP_200_OK)
-        
-        try:
-            user = User.objects.get(username=username)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        if not data:
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return Response(
+                    {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
+                )
 
-        data = UserSerializer(user, context={"request": request}).data
+            data = UserSerializer(user, context={"request": request}).data
 
-        # Add stats
-        data["followers_count"] = user.followers.count()
-        data["following_count"] = user.following.count()
+            # Add stats (redundant if serializer has them, but ensuring consistency)
+            data["followers_count"] = user.followers.count()
+            data["following_count"] = user.following.count()
+            
+            # Cache the public data for 5 minutes
+            cache.set(cache_key, data, 300)
 
-        # Check if requesting user is following
+        # Inject request-specific data (NEVER CACHE THIS)
         if request.user.is_authenticated:
-            data["is_following"] = user.followers.filter(follower=request.user).exists()
+            # Check if relationship exists. 
+            # We use the relationship model directly to avoid fetching the user object if data came from cache
+            data["is_following"] = UserFollow.objects.filter(
+                follower=request.user, following__username=username
+            ).exists()
         else:
             data["is_following"] = False
-
-        # Cache for 5 minutes
-        cache.set(cache_key, data, 300)
         
         return Response(data, status=status.HTTP_200_OK)
 
@@ -173,6 +175,9 @@ class FollowToggleView(APIView):
             is_following = False
         else:
             is_following = True
+            
+        # Invalidate profile cache because followers_count changed
+        cache.delete(f'profile:{username}')
 
         return_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(
@@ -340,3 +345,34 @@ class RedeemReferralView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class SuggestedUsersView(APIView):
+    """View to get suggested users to follow."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserSummarySerializer
+
+    def get(self, request):
+        # Get users the current user is NOT following (excluding self)
+        following_ids = request.user.following.values_list('following_id', flat=True)
+        
+        suggested = User.objects.exclude(
+            id__in=list(following_ids) + [request.user.id]
+        ).select_related('profile').order_by('?')[:5]
+
+        data = []
+        for user in suggested:
+            profile = getattr(user, "profile", None)
+            data.append({
+                "username": user.username,
+                "first_name": user.first_name,
+                "avatar_url": (
+                    f"{settings.BACKEND_URL}{profile.avatar.url}"
+                    if profile and profile.avatar
+                    else None
+                ),
+            })
+
+        return Response(data, status=status.HTTP_200_OK)
+
