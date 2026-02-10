@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+import uuid
 
 
 class Challenge(models.Model):
@@ -88,7 +89,29 @@ class UserProgress(models.Model):
         unique_together = ["user", "challenge"]
 
     def __str__(self):
-        return f"{self.user.username} - {self.challenge.title} ({self.status})"
+        return f"Progress: {self.user.username} - {self.challenge.title} ({self.status})"
 
 
-
+class UserCertificate(models.Model):
+    """
+    Certificate issued when user completes 49 challenges.
+    """
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='certificate')
+    certificate_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    issued_date = models.DateTimeField(auto_now_add=True)
+    certificate_image = models.ImageField(upload_to='certificates/', null=True, blank=True)
+    is_valid = models.BooleanField(default=True)
+    completion_count = models.IntegerField(default=49, help_text="Number of challenges completed")
+    
+    class Meta:
+        ordering = ['-issued_date']
+    
+    def __str__(self):
+        return f"Certificate for {self.user.username} - {self.certificate_id}"
+    
+    @property
+    def verification_url(self):
+        """Generate verification URL for QR code"""
+        from django.conf import settings
+        base_url = settings.FRONTEND_URL or 'http://localhost:5173'
+        return f"{base_url}/verify/{self.certificate_id}"

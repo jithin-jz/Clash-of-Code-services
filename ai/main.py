@@ -16,8 +16,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 # Local imports
 from config import settings
-# Lazy imports for big_bang and auto_generator to avoid potential circular/init issues if any
-from big_bang import run_big_bang
 from prompts import HINT_GENERATION_SYSTEM_PROMPT, HINT_GENERATION_USER_TEMPLATE
 
 # Configure Logging
@@ -70,76 +68,6 @@ class HintRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-@app.post("/big-bang")
-async def trigger_big_bang(
-    background_tasks: BackgroundTasks, 
-    levels: int = 5, 
-    x_internal_api_key: Optional[str] = Header(None, alias="X-Internal-API-Key")
-):
-    """
-    Triggers the autonomous curriculum generation in the background.
-    """
-    if x_internal_api_key != settings.INTERNAL_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-        
-    background_tasks.add_task(run_big_bang, levels)
-    return {"message": f"Big Bang started for {levels} levels. Check AI logs for progress."}
-
-@app.post("/generate-level")
-async def generate_single_level(
-    background_tasks: BackgroundTasks, 
-    level: int, 
-    user_id: Optional[int] = None, 
-    background: bool = True, 
-    x_internal_api_key: Optional[str] = Header(None, alias="X-Internal-API-Key")
-):
-    """
-    Generates a specific single level in the background.
-    """
-    if x_internal_api_key != settings.INTERNAL_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-
-    async def _run_single(lvl, uid):
-        from auto_generator import AutoGenerator
-        
-        logger.info(f"Generating Single Level {lvl} for User {uid}...")
-        try:
-            generator = AutoGenerator()
-            # AWAIT the async generator
-            challenge_json = await generator.generate_level(lvl, user_id=uid)
-            
-            headers = {
-                "X-Internal-API-Key": settings.INTERNAL_API_KEY,
-                "Content-Type": "application/json"
-            }
-            url = f"{settings.CORE_SERVICE_URL}/api/challenges/"
-            challenge_json["order"] = lvl
-            if uid:
-                challenge_json["created_for_user_id"] = uid
-            
-            # Use Async Client
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=challenge_json, headers=headers)
-                if response.status_code in [200, 201]:
-                    logger.info(f"Level {lvl} generated and saved successfully for user {uid}.")
-                    return True
-                else:
-                    logger.error(f"Failed to save Level {lvl}: {response.text}")
-                    return False
-        except Exception as e:
-            logger.error(f"Error generating single level {lvl}: {e}")
-            return False
-
-    if background:
-        background_tasks.add_task(_run_single, level, user_id)
-        return {"message": f"Generation started for level {level}"}
-    else:
-        # Synchronous execution
-        success = await _run_single(level, user_id)
-        if success:
-             return {"message": f"Level {level} generated successfully"}
-        else:
-             raise HTTPException(status_code=500, detail="Failed to generate level")
 
 @app.post("/hints")
 async def generate_hint(
@@ -178,7 +106,8 @@ async def generate_hint(
         raise HTTPException(status_code=503, detail="Core service unavailable")
 
     # 2. Extract Data
-    description = context_data.get("description", "")
+    challenge_title = context_data.get("challenge_title", context_data.get("title", ""))
+    challenge_description = context_data.get("challenge_description", context_data.get("description", ""))
     test_code = context_data.get("test_code", "")
     
     # 3. RAG: Search for similar challenges
@@ -188,7 +117,7 @@ async def generate_hint(
     logger.info("Performing similarity search for RAG...")
     similar_docs = []
     try:
-        query = f"Challenge: {description}\nUser Code: {request.user_code}"
+        query = f"Challenge: {challenge_description}\n\nUser Code: {request.user_code}"
         # using standard sync method for now as chroma python client is sync-heavy
         # wrapping in loop.run_in_executor might be better but let's keep it simple for this pass
         results = vector_db.similarity_search(query, k=2)
@@ -214,8 +143,8 @@ async def generate_hint(
             llm = LLMFactory.get_llm()
             chain = prompt | llm | StrOutputParser()
             hint = await chain.ainvoke({
-                "description": description,
-                "test_code": test_code,
+                "challenge_title": challenge_title,
+                "challenge_description": challenge_description,
                 "user_code": request.user_code,
                 "hint_level": request.hint_level,
                 "user_xp": request.user_xp,
@@ -226,8 +155,8 @@ async def generate_hint(
             llm = LLMFactory.get_fallback_llm()
             chain = prompt | llm | StrOutputParser()
             hint = await chain.ainvoke({
-                "description": description,
-                "test_code": test_code,
+                "challenge_title": challenge_title,
+                "challenge_description": challenge_description,
                 "user_code": request.user_code,
                 "hint_level": request.hint_level,
                 "user_xp": request.user_xp,

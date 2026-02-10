@@ -84,35 +84,21 @@ class ChallengeService:
 
         progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
 
-        # Calculate Stars
-        # Calculate Stars
-        # Option 3 (Balanced):
-        # 0-1 Hints: 3 Stars (First one is free/safe)
+        # Calculate Stars based on static hints used
+        # 0-1 Hints: 3 Stars (First hint is free/safe)
         # 2 Hints: 2 Stars
-        # 3 Hints: 1 Star
-        stars = 3
+        # 3+ Hints: 1 Star
         
-        # Count total hints used (AI + Static) 
-        # Assuming we want to treat them cumulatively, or just focus on AI as requested.
-        # Let's focus on AI hints mainly but handle static as "1 usage" for simplicity if mixed.
-        # For now, strict AI logic as requested:
+        hints_used = progress.hints_unlocked.count()
         
-        usage_count = progress.ai_hints_purchased
-        
-        if usage_count >= 3:
+        if hints_used >= 3:
             stars = 1
-        elif usage_count == 2:
+        elif hints_used == 2:
             stars = 2
         else:
-            # 0 or 1 AI hint
+            # 0 or 1 hint used
             stars = 3
             
-            # Fallback: if they used static hints but 0 AI hints, maybe penalize?
-            # Existing logic was: strict penalty. 
-            # Let's align static hints to be "safe" for the first one too if we want consistency.
-            if usage_count == 0 and progress.hints_unlocked.count() > 1:
-                 stars = 2
-        
         stars = max(1, stars)
 
         newly_completed = progress.status != UserProgress.Status.COMPLETED
@@ -169,7 +155,7 @@ class ChallengeService:
         Purchases the next AI hint level, deducting progressive XP.
         1st hint: 10 XP
         2nd hint: 20 XP
-        ...
+        3rd hint: 30 XP
         """
         progress, _ = UserProgress.objects.get_or_create(
             user=user, challenge=challenge
@@ -191,46 +177,12 @@ class ChallengeService:
         else:
             raise PermissionError("Insufficient XP")
 
-    @staticmethod
-    def create_initial_challenge(user):
-        """
-        Creates the Level 1 'Hello World' challenge for a new user.
-        """
-        # Ensure we don't duplicate Level 1 (check both global and user-specific)
-        if Challenge.objects.filter(
-            Q(created_for_user=user) | Q(created_for_user__isnull=True),
-            order=1
-        ).exists():
-            return None
-
-        challenge = Challenge.objects.create(
-            title="Level 1: Hello World",
-            slug=f"level-1-hello-world-{user.username}",
-            description="Welcome to Clash of Code! Your first task is to print 'Hello, World!' to the console.",
-            initial_code="print(\"\")",
-            test_code="assert \"Hello, World!\" in output, \"You must print 'Hello, World!'\"",
-            order=1,
-            created_for_user=user,
-            xp_reward=50
-        )
-
-        # Create implicit progress record
-        UserProgress.objects.get_or_create(
-            user=user,
-            challenge=challenge,
-            defaults={"status": UserProgress.Status.UNLOCKED}
-        )
-
-        return challenge
 
     @staticmethod
     def _get_next_level_slug(current_challenge, user):
-        """Get the next level that belongs to this user or is global."""
+        """Get the next level slug (all challenges are global now)."""
         next_challenge = (
-            Challenge.objects.filter(
-                Q(created_for_user__isnull=True) | Q(created_for_user=user),
-                order__gt=current_challenge.order
-            )
+            Challenge.objects.filter(order__gt=current_challenge.order)
             .order_by("order")
             .first()
         )

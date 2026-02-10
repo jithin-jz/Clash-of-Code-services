@@ -6,20 +6,20 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from rest_framework.views import APIView
 import logging
-import os
-import requests
 
 logger = logging.getLogger(__name__)
 
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 
-from .models import Challenge, Hint, UserProgress
+from .models import Challenge, Hint, UserProgress, UserCertificate
 from .serializers import (
     ChallengeSerializer,
     HintSerializer,
     UserProgressSerializer,
+    UserCertificateSerializer,
 )
 from .services import ChallengeService
+from .certificate_generator import CertificateGenerator
 from users.models import UserProfile
 from django.contrib.auth.models import User
 
@@ -35,16 +35,11 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if not user.is_authenticated:
-            # Public view: only global challenges
-            return Challenge.objects.filter(created_for_user__isnull=True)
-        
-        # Admin sees all? Or just standard + own? Let's say standard + own for now to keep things clean
-        if user.is_staff:
+            # All users see the same 50 manual tasks
             return Challenge.objects.all()
-
-        return Challenge.objects.filter(
-            Q(created_for_user__isnull=True) | Q(created_for_user=user)
-        )
+        
+        # Authenticated users also see all challenges
+        return Challenge.objects.all()
 
     def get_permissions(self):
         if self.action in ["internal_context", "internal_list", "create"]:
@@ -95,47 +90,6 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         Return list of challenges annotated with user progress (status, stars).
         """
         queryset = self.filter_queryset(self.get_queryset())
-        
-        # --- AI Level 1 Generation Trigger ---
-        # If user is authenticated, not staff (optional check), and has NO challenges available
-        if request.user.is_authenticated and not request.user.is_staff and not queryset.exists():
-             logger.info(f"No challenges found for {request.user.username}. Triggering AI generation for Level 1.")
-             
-             import requests
-             import time
-             ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
-             internal_key = os.getenv("INTERNAL_API_KEY")
-             
-             # Retry logic for AI service (may not be ready on startup)
-             max_retries = 3
-             for attempt in range(max_retries):
-                 try:
-                     # Synchronous call to AI service (background=false)
-                     resp = requests.post(
-                         f"{ai_url}/generate-level", 
-                         params={"level": 1, "user_id": request.user.id, "background": "false"},
-                         headers={"X-Internal-API-Key": internal_key},
-                         timeout=25  # Wait up to 25s for generation
-                     )
-                     
-                     if resp.status_code == 200:
-                         logger.info("AI Level 1 generation successful. Refreshing queryset.")
-                         # Refresh queryset to include the newly created level
-                         queryset = self.filter_queryset(self.get_queryset())
-                         break
-                     else:
-                         logger.error(f"AI Level 1 generation failed: {resp.text}")
-                         break  # Don't retry on non-connection errors
-                         
-                 except requests.exceptions.ConnectionError as e:
-                     if attempt < max_retries - 1:
-                         logger.warning(f"AI service not ready (attempt {attempt + 1}/{max_retries}), retrying in 2s...")
-                         time.sleep(2)
-                     else:
-                         logger.error(f"AI service unavailable after {max_retries} attempts: {e}")
-                 except Exception as e:
-                     logger.error(f"Error triggering AI Level 1: {e}")
-                     break
         
         annotated_challenges = ChallengeService.get_annotated_challenges(
             request.user, queryset
@@ -190,53 +144,8 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
         result = ChallengeService.process_submission(request.user, challenge, passed)
 
-        # Determine status code
-        # A failed test is a valid processed request, so 200 OK is often appropriate for "Result: Fail".
-        # However, if passed=False means "Client says it failed", 200 is correct acknowledgment.
-
         if result["status"] == "failed":
-            # Return 200 but indicating failure in body, OR 422 Unprocessable Entity
-            # user requested 200 with status=failed is easier for frontend usually.
             return Response(result, status=status.HTTP_200_OK)
-
-        # --- ENDLESS MODE TRIGGER ---
-        # If passed, check if we need to generate the NEXT level.
-        if passed and result["status"] in ["completed", "already_completed"]:
-            try:
-                current_order = challenge.order
-                user = request.user
-                user_id = user.id # Capture explicitly for thread safety
-                
-                # Check if next level exists FOR THIS USER
-                # We check global (created_for_user__isnull=True) AND user-specific
-                next_level_exists = Challenge.objects.filter(
-                    Q(created_for_user__isnull=True) | Q(created_for_user=user),
-                    order=current_order + 1
-                ).exists()
-
-                if not next_level_exists:
-                    logger.info(f"Endless Mode: Triggering generation for Level {current_order + 1} for User {user.username}")
-                    
-                    # Fire and forget request to AI service
-                    import threading
-                    import requests
-                    import os
-                    
-                    def trigger_ai():
-                        ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
-                        internal_key = os.getenv("INTERNAL_API_KEY")
-                        # Pass user_id so AI creates personalized content
-                        url = f"{ai_url}/generate-level?level={current_order + 1}&user_id={user_id}"
-                        headers = {"X-Internal-API-Key": internal_key}
-                        try:
-                            # Use internal key to pass auth check
-                            requests.post(url, headers=headers, timeout=1) 
-                        except requests.exceptions.RequestException:
-                            pass # Expected, as we don't wait for response
-                            
-                    threading.Thread(target=trigger_ai).start()
-            except Exception as e:
-                logger.error(f"Endless Mode Error: {e}")
 
         return Response(result, status=status.HTTP_200_OK)
 
@@ -257,22 +166,58 @@ class ChallengeViewSet(viewsets.ModelViewSet):
     )
     @decorators.action(detail=True, methods=["post"])
     def purchase_ai_assist(self, request, slug=None):
+        """
+        Purchase an AI hint for this challenge (XP cost: 10, 20, or 30).
+        """
         challenge = self.get_object()
+        user = request.user
+        
+        # Get or create progress
+        progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
+        
+        # Calculate cost for next hint
+        current_count = progress.ai_hints_purchased
+        next_cost = 10 * (current_count + 1)
+        user_xp = user.profile.xp
+
         try:
             remaining_xp = ChallengeService.purchase_ai_assist(request.user, challenge)
-            progress, _ = UserProgress.objects.get_or_create(user=request.user, challenge=challenge)
+            progress.refresh_from_db()
             return Response(
                 {
                     "status": "purchased", 
                     "remaining_xp": remaining_xp,
-                    "hints_purchased": progress.ai_hints_purchased
+                    "hints_purchased": progress.ai_hints_purchased,
+                    "cost": next_cost,
+                    "message": f"AI hint purchased! {remaining_xp} XP remaining."
                 },
                 status=status.HTTP_200_OK,
             )
-        except PermissionError:
-            return Response(
-                {"error": "Insufficient XP"}, status=status.HTTP_402_PAYMENT_REQUIRED
-            )
+        except PermissionError as e:
+            error_message = str(e)
+            
+            if "Maximum" in error_message:
+                return Response(
+                    {
+                        "error": "Maximum AI hints reached",
+                        "detail": "You've already purchased all 3 AI hints for this challenge.",
+                        "hints_purchased": current_count,
+                        "max_hints": 3
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                return Response(
+                    {
+                        "error": "Insufficient XP",
+                        "detail": f"You need {next_cost} XP to purchase this hint, but you only have {user_xp} XP.",
+                        "required_xp": next_cost,
+                        "current_xp": user_xp,
+                        "shortage": next_cost - user_xp,
+                        "how_to_earn": "Complete challenges to earn XP (50 XP per challenge) or visit the shop."
+                    },
+                    status=status.HTTP_402_PAYMENT_REQUIRED
+                )
 
     @extend_schema(
         request=inline_serializer(
@@ -340,6 +285,9 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             )
 
         # 2. Proxy to AI Service
+        import os
+        import requests
+        
         ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
         internal_key = os.getenv("INTERNAL_API_KEY")
         
@@ -412,7 +360,9 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             challenge = Challenge.objects.get(slug=slug)
             logger.info(f"Successfully fetched context for slug: {slug}")
             return Response({
-                "description": challenge.description,
+                "challenge_title": challenge.title,
+                "challenge_description": challenge.description,
+                "description": challenge.description,  # backwards compatibility
                 "initial_code": challenge.initial_code,
                 "test_code": challenge.test_code,
             })
