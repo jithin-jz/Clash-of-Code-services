@@ -39,6 +39,10 @@ User writes a function. Test calls it and checks return value.
   "xp_reward": 50
 }}
 
+## XP REWARD RULE
+- `xp_reward` must be calculated as: **level number * 10**
+- Example: Level 1 = 10 XP, Level 5 = 50 XP, Level 10 = 100 XP.
+
 ## EXAMPLES
 
 ### Level 1: Hello World
@@ -46,11 +50,11 @@ User writes a function. Test calls it and checks return value.
   "title": "Hello World",
   "slug": "lvl-1-hello-world",
   "description": "Print: Hello, World!",
-  "initial_code": "# Write your code here\n",
+  "initial_code": "# Write your code here\\n",
   "test_code": "def check(scope):\\n    assert 'hello, world!' in output.lower(), f\\"Print 'Hello, World!' - you printed: {{output}}\\"",
   "reference_solution": "print('Hello, World!')",
   "hint": "Use print()",
-  "xp_reward": 50
+  "xp_reward": 10
 }}
 
 ### Level 2: Print Your Name  
@@ -58,11 +62,11 @@ User writes a function. Test calls it and checks return value.
   "title": "Print Your Name",
   "slug": "lvl-2-print-name",
   "description": "Print: Python",
-  "initial_code": "# Write your code here\n",
+  "initial_code": "# Write your code here\\n",
   "test_code": "def check(scope):\\n    assert 'python' in output.lower(), f\\"Print 'Python' - you printed: {{output}}\\"",
   "reference_solution": "print('Python')",
   "hint": "Use print()",
-  "xp_reward": 50
+  "xp_reward": 20
 }}
 
 ### Level 3: Variables
@@ -70,11 +74,11 @@ User writes a function. Test calls it and checks return value.
   "title": "Create a Variable",
   "slug": "lvl-3-variable",
   "description": "Create a variable called `x` and set it to 10",
-  "initial_code": "# Write your code here\n",
+  "initial_code": "# Write your code here\\n",
   "test_code": "def check(scope):\\n    assert 'x' in scope, 'Create a variable called x'\\n    assert scope['x'] == 10, f\\"x should be 10, got {{scope['x']}}\\"",
   "reference_solution": "x = 10",
   "hint": "Use x = value",
-  "xp_reward": 50
+  "xp_reward": 30
 }}
 
 ### Level 6: Simple Function
@@ -86,7 +90,7 @@ User writes a function. Test calls it and checks return value.
   "test_code": "def check(scope):\\n    assert 'double' in scope, 'Define function: double'\\n    assert scope['double'](5) == 10, 'double(5) should return 10'\\n    assert scope['double'](0) == 0, 'double(0) should return 0'",
   "reference_solution": "def double(n):\\n    return n * 2",
   "hint": "Use return n * 2",
-  "xp_reward": 50
+  "xp_reward": 60
 }}
 
 ## CRITICAL RESTRICTIONS

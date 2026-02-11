@@ -32,7 +32,7 @@ class CertificateViewSet(viewsets.ViewSet):
         # Check if user is eligible
         if not generator.is_eligible(user):
             return Response(
-                {"error": "You need to complete 49 challenges to earn a certificate."},
+                {"error": "You need to complete 53 challenges to earn a certificate."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -120,6 +120,6 @@ class CertificateViewSet(viewsets.ViewSet):
         return Response({
             "eligible": generator.is_eligible(user),
             "completed_challenges": completed_count,
-            "required_challenges": 49,
+            "required_challenges": 53,
             "has_certificate": UserCertificate.objects.filter(user=user).exists()
         })
