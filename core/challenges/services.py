@@ -113,21 +113,39 @@ class ChallengeService:
             progress.save()
 
             # Award XP only on first completion
-            xp_earned = 0
             if newly_completed:
                 xp_earned = challenge.xp_reward
                 XPService.add_xp(user, xp_earned, source="challenge_completion")
 
-            next_slug = ChallengeService._get_next_level_slug(challenge, user)
+        next_slug = ChallengeService._get_next_level_slug(challenge, user)
+        
+        # Check for Certificate Trigger (Level 53 completed)
+        certificate_data = {}
+        if challenge.order == 53:
+            try:
+                from .certificate_generator import CertificateGenerator
+                generator = CertificateGenerator()
+                if generator.is_eligible(user):
+                        cert = generator.generate_certificate(user)
+                        certificate_data = {
+                            "certificate_unlocked": True,
+                            "certificate_id": str(cert.certificate_id),
+                             # Ensure this relative path matches what frontend expects
+                            "certificate_url": f"/api/certificates/download/" 
+                        }
+            except Exception as e:
+                # Log error but don't fail the submission
+                print(f"Error generating certificate: {e}")
 
-            return {
-                "status": "completed" if newly_completed else "already_completed",
-                "xp_earned": xp_earned,
-                "stars": stars,
-                "next_level_slug": next_slug,
-            }
-
-        return {"status": "already_completed", "xp_earned": 0, "stars": progress.stars}
+        result_data = {
+            "status": "completed" if newly_completed else "already_completed",
+            "xp_earned": xp_earned if newly_completed else 0,
+            "stars": stars,
+            "next_level_slug": next_slug,
+        }
+        result_data.update(certificate_data)
+        
+        return result_data
 
     @staticmethod
     def unlock_hint(user, challenge, hint_order):

@@ -19,7 +19,6 @@ from .serializers import (
     UserCertificateSerializer,
 )
 from .services import ChallengeService
-from .certificate_generator import CertificateGenerator
 from users.models import UserProfile
 from django.contrib.auth.models import User
 
@@ -53,14 +52,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
 
     def create(self, request, *args, **kwargs):
-        # Professional Internal Bypass for Automation
-        import os
-        internal_key = os.getenv("INTERNAL_API_KEY")
-        request_key = request.headers.get("X-Internal-API-Key")
 
-        if internal_key and request_key == internal_key:
-            return super().create(request, *args, **kwargs)
-        
         # Fallback to Admin only for manual creation
         if not request.user.is_staff:
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
@@ -450,3 +442,105 @@ class LeaderboardView(APIView):
         cache.set("leaderboard_data", data, timeout=300)
 
         return Response(data)
+
+
+class CertificateViewSet(viewsets.ViewSet):
+    """API endpoints for certificate generation and verification"""
+    
+    permission_classes = [IsAuthenticated]
+    
+    @decorators.action(detail=False, methods=['get'])
+    def my_certificate(self, request):
+        """
+        Get or generate certificate for the authenticated user.
+        GET /api/certificates/my_certificate/
+        """
+        user = request.user
+        
+        # Check eligibility (53 completed challenges)
+        from .models import UserProgress
+        completed_count = UserProgress.objects.filter(
+            user=user,
+            status=UserProgress.Status.COMPLETED
+        ).count()
+        
+        if completed_count < 53:
+            return Response(
+                {"error": "You need to complete 53 challenges to earn a certificate."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Try to get existing certificate
+            certificate = UserCertificate.objects.get(user=user)
+        except UserCertificate.DoesNotExist:
+            # Generate new certificate record (No image generation needed)
+            try:
+                certificate = UserCertificate.objects.create(
+                    user=user,
+                    completion_count=completed_count
+                )
+            except Exception as e:
+                logger.error(f"Failed to create certificate record for {user.username}: {e}")
+                return Response(
+                    {"error": "Failed to generate certificate. Please try again later."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        serializer = UserCertificateSerializer(certificate, context={'request': request})
+        return Response(serializer.data)
+    
+    @decorators.action(detail=False, methods=['get'], url_path='verify/(?P<certificate_id>[^/.]+)', permission_classes=[AllowAny])
+    def verify(self, request, certificate_id=None):
+        """
+        Verify a certificate by its ID.
+        GET /api/certificates/verify/<certificate_id>/
+        Public endpoint - no authentication required.
+        """
+        try:
+            certificate = get_object_or_404(UserCertificate, certificate_id=certificate_id)
+            serializer = UserCertificateSerializer(certificate, context={'request': request})
+            return Response({
+                "valid": certificate.is_valid,
+                "certificate": serializer.data
+            })
+        except Exception as e:
+            logger.error(f"Certificate verification error: {e}")
+            return Response(
+                {"valid": False, "error": "Certificate not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @decorators.action(detail=False, methods=['get'])
+    def download(self, request):
+        """
+        Deprecated. Download is now handled client-side.
+        """
+        return Response(
+            {"error": "Please download the certificate from your dashboard."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    @decorators.action(detail=False, methods=['get'])
+    def check_eligibility(self, request):
+        """
+        Check if user is eligible for certificate.
+        GET /api/certificates/check_eligibility/
+        """
+        user = request.user
+        
+        from .models import UserProgress
+        completed_count = UserProgress.objects.filter(
+            user=user,
+            status=UserProgress.Status.COMPLETED
+        ).count()
+        
+        full_curriculum_count = 53
+        is_eligible = completed_count >= full_curriculum_count
+        
+        return Response({
+            "eligible": is_eligible,
+            "completed_challenges": completed_count,
+            "required_challenges": full_curriculum_count,
+            "has_certificate": UserCertificate.objects.filter(user=user).exists()
+        })

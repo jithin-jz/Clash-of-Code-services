@@ -13,16 +13,16 @@ class Settings(BaseSettings):
     
     # LLM Settings
     LLM_PROVIDER: str = "groq" 
-    MODEL_NAME: str = "llama-3.3-70b-versatile"
-    OPENAI_API_BASE: str = "https://api.groq.com/openai/v1"
+    MODEL_NAME: str
+    OPENAI_API_BASE: str
     
     # RAG Settings
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
-    CHROMA_SERVER_HOST: str = "chroma"
-    CHROMA_SERVER_HTTP_PORT: int = 8000
+    EMBEDDING_MODEL: str
+    CHROMA_SERVER_HOST: str
+    CHROMA_SERVER_HTTP_PORT: int
     
     # Security
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost"]
+    CORS_ORIGINS: List[str]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

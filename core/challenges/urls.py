@@ -3,8 +3,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ChallengeViewSet,
     LeaderboardView,
+    CertificateViewSet,
 )
-from .certificate_views import CertificateViewSet
 
 router = DefaultRouter()
 router.register(r"challenges", ChallengeViewSet)

@@ -1,0 +1,92 @@
+from django.test import TestCase
+from django.contrib.auth.models import User
+from challenges.models import Challenge, UserProgress, UserCertificate
+from challenges.services import ChallengeService
+from unittest.mock import patch
+
+class CertificateFlowTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password')
+        # Create 53 challenges
+        self.challenges = []
+        for i in range(1, 54):
+            challenge = Challenge.objects.create(
+                title=f"Level {i}",
+                slug=f"level-{i}",
+                description="test",
+                initial_code="print('hello')",
+                test_code="assert True",
+                order=i,
+                xp_reward=10
+            )
+            self.challenges.append(challenge)
+
+    def test_certificate_generation_on_level_53(self):
+        # Complete first 52 challenges
+        for challenge in self.challenges[:-1]:
+            UserProgress.objects.create(
+                user=self.user,
+                challenge=challenge,
+                status=UserProgress.Status.COMPLETED,
+                stars=3
+            )
+        
+        # Verify 52 completed
+        self.assertEqual(UserProgress.objects.filter(user=self.user, status=UserProgress.Status.COMPLETED).count(), 52)
+        
+        # Submit Level 53
+        level_53 = self.challenges[-1]
+        
+        # Mock certificate generation internals to avoid image creation if needed, 
+        # but let's test the full flow including image generation if possible.
+        # However, image generation requires fonts which might be missing in test environment.
+        # Let's mock _create_certificate_image or just let it fail/succeed. 
+        # Actually, CertificateGenerator handles font fallback.
+        
+        result = ChallengeService.process_submission(self.user, level_53, passed=True)
+        
+        # Check result
+        self.assertEqual(result['status'], 'completed')
+        self.assertTrue(result.get('certificate_unlocked'), "Certificate should be unlocked")
+        self.assertIn('certificate_id', result)
+        
+        # Check database
+        self.assertTrue(UserCertificate.objects.filter(user=self.user).exists())
+        cert = UserCertificate.objects.get(user=self.user)
+        self.assertEqual(cert.completion_count, 53)
+
+    def test_certificate_on_resubmission(self):
+        # Complete all 53 challenges first
+        for challenge in self.challenges:
+            UserProgress.objects.create(
+                user=self.user,
+                challenge=challenge,
+                status=UserProgress.Status.COMPLETED,
+                stars=3
+            )
+            
+        level_53 = self.challenges[-1]
+        
+        # Submit Level 53 again
+        result = ChallengeService.process_submission(self.user, level_53, passed=True)
+        
+        # Verify certificate data is still present
+        self.assertEqual(result['status'], 'already_completed')
+        self.assertTrue(result.get('certificate_unlocked'), "Certificate should be unlocked on re-submission")
+        self.assertIn('certificate_id', result)
+
+    def test_no_certificate_on_level_52(self):
+        # Complete 51 challenges
+        for challenge in self.challenges[:-2]:
+            UserProgress.objects.create(
+                user=self.user,
+                challenge=challenge,
+                status=UserProgress.Status.COMPLETED
+            )
+            
+        # Submit Level 52
+        level_52 = self.challenges[-2]
+        result = ChallengeService.process_submission(self.user, level_52, passed=True)
+        
+        self.assertFalse(result.get('certificate_unlocked', False))
+        self.assertFalse(UserCertificate.objects.filter(user=self.user).exists())
