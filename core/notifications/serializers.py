@@ -1,6 +1,13 @@
 from rest_framework import serializers
-from .models import Notification
+from .models import Notification, FCMToken
+
 from users.serializers import UserSummarySerializer
+
+class FCMTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FCMToken
+        fields = ['token', 'device_id']
+
 
 class NotificationSerializer(serializers.ModelSerializer):
     actor = UserSummarySerializer(read_only=True)

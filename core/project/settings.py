@@ -148,6 +148,10 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # Backend URL (for absolute media paths)
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
+# Firebase
+FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+
+
 # Cache Configuration
 CACHES = {
     'default': {

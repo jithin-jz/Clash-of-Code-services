@@ -1,8 +1,32 @@
 from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Notification
-from .serializers import NotificationSerializer
+from .models import Notification, FCMToken
+from .serializers import NotificationSerializer, FCMTokenSerializer
+
+class FCMTokenViewSet(viewsets.ModelViewSet):
+    serializer_class = FCMTokenSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return FCMToken.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        token = request.data.get('token')
+        device_id = request.data.get('device_id')
+        
+        if not token:
+            return Response({"error": "Token is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        fcm_token, created = FCMToken.objects.update_or_create(
+            user=request.user,
+            device_id=device_id,
+            defaults={'token': token}
+        )
+        
+        serializer = self.get_serializer(fcm_token)
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
 
 class NotificationViewSet(mixins.RetrieveModelMixin,
                           mixins.ListModelMixin,
