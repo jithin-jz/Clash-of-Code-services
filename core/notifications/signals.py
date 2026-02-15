@@ -5,6 +5,7 @@ from users.models import UserFollow
 from posts.models import Post
 from .models import Notification
 from .utils import send_fcm_push
+from .dynamo import dynamo_notification_client
 
 @receiver(m2m_changed, sender=Post.likes.through)
 def create_like_notification(sender, instance, action, pk_set, **kwargs):
@@ -24,6 +25,12 @@ def create_like_notification(sender, instance, action, pk_set, **kwargs):
                     title="New Like! ❤️",
                     body=f"{actor.username} liked your post: {instance.caption[:30]}..."
                 )
+                dynamo_notification_client.save_notification(
+                    user_id=instance.user.id,
+                    actor_username=actor.username,
+                    verb='liked your post',
+                    target_info=f"Post: {instance.id}"
+                )
 
 
 @receiver(post_save, sender=UserFollow)
@@ -39,5 +46,10 @@ def create_follow_notification(sender, instance, created, **kwargs):
             user=instance.following,
             title="New Follower! 👤",
             body=f"{instance.follower.username} started following you."
+        )
+        dynamo_notification_client.save_notification(
+            user_id=instance.following.id,
+            actor_username=instance.follower.username,
+            verb='started following you'
         )
 

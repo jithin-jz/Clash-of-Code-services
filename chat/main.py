@@ -12,6 +12,7 @@ from schemas import ChatMessage as ChatMessageSchema, PresenceEvent, IncomingMes
 from database import init_db, engine
 from models import ChatMessage
 from rate_limiter import RateLimiter
+from dynamo import dynamo_client
 
 # Configure structured logging
 logging.basicConfig(
@@ -44,6 +45,7 @@ TYPING_INDICATOR_TTL = 3  # seconds
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+    await dynamo_client.create_table_if_not_exists()
 
 @app.get("/", status_code=status.HTTP_200_OK)
 async def health_check():
@@ -70,6 +72,28 @@ async def get_message_history(room: str, limit: int = 50, offset: int = 0, token
         )
     
     try:
+        # Try fetching from DynamoDB first for high performance
+        messages = await dynamo_client.get_messages(room, limit=limit)
+        
+        if messages:
+            return JSONResponse(
+                content={
+                    "messages": [
+                        {
+                            "username": msg["sender"],
+                            "message": msg["content"],
+                            "timestamp": msg["timestamp"],
+                            "reactions": msg.get("reactions", {})
+                        }
+                        for msg in reversed(messages) # Dynamo returns latest first, we want chronological
+                    ],
+                    "has_more": len(messages) == limit,
+                    "source": "dynamodb"
+                },
+                status_code=status.HTTP_200_OK
+            )
+
+        # Fallback to SQL if Dynamo is empty (migration period)
         async_session = sessionmaker(
             engine, class_=AsyncSession, expire_on_commit=False
         )
@@ -99,7 +123,8 @@ async def get_message_history(room: str, limit: int = 50, offset: int = 0, token
                         }
                         for msg in messages
                     ],
-                    "has_more": len(messages) == limit
+                    "has_more": len(messages) == limit,
+                    "source": "sql"
                 },
                 status_code=status.HTTP_200_OK
             )
@@ -300,7 +325,7 @@ async def chat_ws(ws: WebSocket, room: str):
                 avatar_url=avatar_url,
             )
 
-            # Persist to DB
+            # Persist to DB (SQL & DynamoDB)
             db_msg = ChatMessage(
                 room=room,
                 message=message.message,
@@ -308,9 +333,18 @@ async def chat_ws(ws: WebSocket, room: str):
                 username=message.username,
                 avatar_url=message.avatar_url,
             )
+            
+            # Save to SQL
             async with async_session() as session:
                 session.add(db_msg)
                 await session.commit()
+
+            # Save to DynamoDB for high-speed history retrieval
+            await dynamo_client.save_message(
+                room_id=room,
+                sender=username,
+                message=incoming.message
+            )
 
             # Publish
             await redis_client.publish(
