@@ -1,7 +1,7 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import Post
 from .serializers import PostSerializer
 from .permissions import IsOwnerOrReadOnly
@@ -12,7 +12,7 @@ from .permissions import IsOwnerOrReadOnly
 class PostViewSet(viewsets.ModelViewSet):
     queryset = Post.objects.all().select_related('user').prefetch_related('likes')
     serializer_class = PostSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
     def get_queryset(self):

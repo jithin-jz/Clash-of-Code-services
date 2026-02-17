@@ -16,7 +16,7 @@ class PostSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'image', 'image_url', 'caption', 'created_at', 'likes_count', 'is_liked']
         read_only_fields = ['user', 'created_at', 'likes_count', 'image_url']
         extra_kwargs = {
-             'image': {'write_only': True} 
+             'image': {'write_only': True, 'required': False} 
         }
 
     def get_is_liked(self, obj):
