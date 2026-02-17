@@ -4,15 +4,15 @@ import hashlib
 import hmac
 import time
 import requests
-import random
 import string
+import secrets
 from datetime import datetime, timedelta, timezone
 from django.conf import settings
 
 
-def generate_otp_code(length=4):
+def generate_otp_code(length=6):
     """Generate a numeric OTP code."""
-    return "".join(random.choices(string.digits, k=length))
+    return "".join(secrets.choice(string.digits) for _ in range(length))
 
 
 def generate_access_token(user):
@@ -160,29 +160,3 @@ def get_google_user(access_token):
     return response.json()
 
 
-# Discord OAuth helpers
-def get_discord_access_token(code):
-    """Exchange authorization code for Discord access token."""
-
-    response = requests.post(
-        "https://discord.com/api/oauth2/token",
-        data={
-            "client_id": settings.DISCORD_CLIENT_ID,
-            "client_secret": settings.DISCORD_CLIENT_SECRET,
-            "code": code,
-            "redirect_uri": settings.DISCORD_REDIRECT_URI,
-            "grant_type": "authorization_code",
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-    return response.json()
-
-
-def get_discord_user(access_token):
-    """Get Discord user data using access token."""
-    response = requests.get(
-        "https://discord.com/api/users/@me",
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    return response.json()

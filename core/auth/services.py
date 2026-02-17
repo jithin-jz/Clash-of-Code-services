@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
+from django.core.cache import cache
 
 from users.models import UserProfile
 from .models import EmailOTP
@@ -17,8 +18,6 @@ from .utils import (
     get_github_user_email,
     get_google_access_token,
     get_google_user,
-    get_discord_access_token,
-    get_discord_user,
 )
 from .tasks import send_welcome_email_task, send_otp_email_task
 
@@ -26,6 +25,23 @@ logger = logging.getLogger(__name__)
 
 
 class AuthService:
+    OTP_VERIFY_MAX_ATTEMPTS = 5
+    OTP_VERIFY_WINDOW_SECONDS = 10 * 60
+    OTP_VERIFY_LOCK_SECONDS = 15 * 60
+    OTP_REQUEST_WINDOW_SECONDS = 10 * 60
+    OTP_REQUEST_MAX = 5
+
+    @staticmethod
+    def _otp_attempts_key(email: str) -> str:
+        return f"auth:otp:verify_attempts:{email.lower().strip()}"
+
+    @staticmethod
+    def _otp_lock_key(email: str) -> str:
+        return f"auth:otp:verify_lock:{email.lower().strip()}"
+
+    @staticmethod
+    def _otp_request_key(email: str) -> str:
+        return f"auth:otp:request_count:{email.lower().strip()}"
 
     @staticmethod
     def handle_oauth_login(provider, code):
@@ -33,7 +49,7 @@ class AuthService:
         Orchestrates the complete OAuth login lifecycle.
 
         Args:
-            provider (str): The OAuth provider name ('github', 'google', 'discord').
+            provider (str): The OAuth provider name ('github', 'google').
             code (str): The authorization code received from the frontend callback.
 
         Returns:
@@ -74,8 +90,6 @@ class AuthService:
             return get_github_access_token(code)
         elif provider == "google":
             return get_google_access_token(code)
-        elif provider == "discord":
-            return get_discord_access_token(code)
         return {"error": "Invalid provider"}
 
     @staticmethod
@@ -106,29 +120,6 @@ class AuthService:
                 "username": user.get("email", "").split("@")[0],
                 "name": user.get("name", ""),
                 "avatar_url": user.get("picture", ""),
-            }
-
-        elif provider == "discord":
-            user = get_discord_user(access_token)
-            if "id" not in user:
-                return {"error": "Failed to fetch Discord user"}
-
-            discord_id = str(user["id"])
-            avatar_hash = user.get("avatar")
-            if avatar_hash:
-                avatar_url = (
-                    f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.png"
-                )
-            else:
-                discriminator = user.get("discriminator", "0")
-                avatar_url = f"https://cdn.discordapp.com/embed/avatars/{int(discriminator) % 5}.png"
-
-            return {
-                "id": discord_id,
-                "email": user.get("email", ""),
-                "username": user.get("username", f"discord_{discord_id}"),
-                "name": user.get("global_name", user.get("username")),
-                "avatar_url": avatar_url,
             }
 
         return {"error": "Invalid provider"}
@@ -246,10 +237,16 @@ class AuthService:
     def request_otp(email):
         """Generates and sends an OTP to the given email."""
         email = email.lower().strip()
+        request_key = AuthService._otp_request_key(email)
+        request_count = cache.get(request_key, 0)
+        if request_count >= AuthService.OTP_REQUEST_MAX:
+            raise ValidationError("Too many OTP requests. Please try again later.")
+
         otp_code = generate_otp_code()
 
         EmailOTP.objects.create(email=email, otp=otp_code)
         send_otp_email_task.delay(email, otp_code)
+        cache.set(request_key, request_count + 1, timeout=AuthService.OTP_REQUEST_WINDOW_SECONDS)
 
         return True
 
@@ -260,6 +257,12 @@ class AuthService:
 
         email = email.lower().strip()
         otp = otp.strip()
+        lock_key = AuthService._otp_lock_key(email)
+        attempts_key = AuthService._otp_attempts_key(email)
+
+        if cache.get(lock_key):
+            logger.warning(f"OTP locked for {email}")
+            return None, {"error": "Too many invalid attempts. Try again later."}
 
         expiry_time = datetime.now(timezone.utc) - timedelta(minutes=10)
 
@@ -270,6 +273,10 @@ class AuthService:
 
         except EmailOTP.DoesNotExist:
             logger.warning(f"OTP not found or expired for {email}")
+            attempts = cache.get(attempts_key, 0) + 1
+            cache.set(attempts_key, attempts, timeout=AuthService.OTP_VERIFY_WINDOW_SECONDS)
+            if attempts >= AuthService.OTP_VERIFY_MAX_ATTEMPTS:
+                cache.set(lock_key, 1, timeout=AuthService.OTP_VERIFY_LOCK_SECONDS)
             return None, {"error": "Invalid or expired OTP."}
 
         try:
@@ -314,6 +321,8 @@ class AuthService:
                         )
 
                 otp_record.delete()
+                cache.delete(attempts_key)
+                cache.delete(lock_key)
                 tokens = generate_tokens(user)
 
             if not user.is_active:

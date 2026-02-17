@@ -8,7 +8,7 @@ python-dotenv==1.2.1
 PyJWT==2.10.1
 cryptography>=42.0.0
 requests==2.32.5
-razorpay
+razorpay==1.4.2
 Pillow==10.2.0
 django-ses==4.3.0
 boto3>=1.34.0
@@ -20,3 +20,5 @@ redis==5.0.1
 django-celery-beat==2.6.0
 django-celery-results==2.5.1
 firebase-admin==6.6.0
+gunicorn==23.0.0
+setuptools>=70.0.0

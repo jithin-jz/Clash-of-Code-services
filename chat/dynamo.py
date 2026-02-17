@@ -1,6 +1,7 @@
 import os
 import aioboto3
 from datetime import datetime
+import logging
 
 # Credentials
 DYNAMODB_URL = os.getenv("DYNAMODB_URL", "http://dynamodb:8000")
@@ -8,6 +9,7 @@ REGION_NAME = os.getenv("AWS_REGION", "us-west-2")
 ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "dummy")
 SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "dummy")
 TABLE_NAME = "ChatMessages"
+logger = logging.getLogger(__name__)
 
 class DynamoClient:
     def __init__(self):
@@ -38,9 +40,9 @@ class DynamoClient:
                         ],
                         ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
                     )
-                    print(f"Table {TABLE_NAME} created.")
+                    logger.info("Table %s created.", TABLE_NAME)
         except Exception as e:
-            print(f"Error creating table: {e}")
+            logger.exception("Error creating table: %s", e)
 
     async def save_message(self, room_id: str, sender: str, message: str, user_id: str = None):
         try:
@@ -65,7 +67,7 @@ class DynamoClient:
                         ExpressionAttributeValues={':inc': 1}
                     )
         except Exception as e:
-            print(f"Error saving message to DynamoDB: {e}")
+            logger.exception("Error saving message to DynamoDB: %s", e)
 
     async def get_messages(self, room_id: str, limit: int = 50):
         try:
@@ -78,7 +80,7 @@ class DynamoClient:
                 )
                 return response.get('Items', [])
         except Exception as e:
-            print(f"Error fetching messages from DynamoDB: {e}")
+            logger.exception("Error fetching messages from DynamoDB: %s", e)
             return []
 
 dynamo_client = DynamoClient()

@@ -1,10 +1,12 @@
 import os
 import boto3
 from datetime import datetime
+import logging
 
 DYNAMODB_URL = os.getenv("DYNAMODB_URL", "http://dynamodb:8000")
 REGION_NAME = os.getenv("AWS_REGION", "us-west-2")
 TABLE_NAME = "ChallengeProgress"
+logger = logging.getLogger(__name__)
 
 class DynamoChallengeClient:
     def __init__(self):
@@ -32,9 +34,9 @@ class DynamoChallengeClient:
                     ],
                     ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
                 )
-                print(f"Table {TABLE_NAME} created.")
+                logger.info("Table %s created.", TABLE_NAME)
         except Exception as e:
-            print(f"Error creating table: {e}")
+            logger.exception("Error creating table: %s", e)
 
     def update_progress(self, user_id: str, challenge_slug: str, status: str, stars: int = 0):
         try:
@@ -49,7 +51,7 @@ class DynamoChallengeClient:
                 }
             )
         except Exception as e:
-            print(f"Error updating challenge progress in DynamoDB: {e}")
+            logger.exception("Error updating challenge progress in DynamoDB: %s", e)
 
     def get_user_progress(self, user_id: str):
         try:
@@ -59,7 +61,7 @@ class DynamoChallengeClient:
             )
             return response.get('Items', [])
         except Exception as e:
-            print(f"Error fetching challenge progress from DynamoDB: {e}")
+            logger.exception("Error fetching challenge progress from DynamoDB: %s", e)
             return []
 
 dynamo_challenge_client = DynamoChallengeClient()

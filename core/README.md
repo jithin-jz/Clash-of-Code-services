@@ -16,7 +16,7 @@ The **Core Service** is the backbone of the Clash of Code platform. Built with *
 The service is organized into modular Django apps:
 
 - `users/`: Custom user model, profile management, and authentication logic.
-- `auth/`: Social OAuth integrations (GitHub, Google, Discord).
+- `auth/`: Social OAuth integrations (GitHub, Google).
 - `challenges/`: Core game logic, level management, and code execution validation.
 - `rewards/`: XP system, badges, and certificate generation.
 - `payments/`: Razorpay order processing and transaction history.

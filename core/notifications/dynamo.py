@@ -2,10 +2,12 @@ import os
 import boto3
 from datetime import datetime
 from django.conf import settings
+import logging
 
 DYNAMODB_URL = os.getenv("DYNAMODB_URL", "http://dynamodb:8000")
 REGION_NAME = os.getenv("AWS_REGION", "us-west-2")
 TABLE_NAME = "Notifications"
+logger = logging.getLogger(__name__)
 
 class DynamoNotificationClient:
     def __init__(self):
@@ -33,9 +35,9 @@ class DynamoNotificationClient:
                     ],
                     ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
                 )
-                print(f"Table {TABLE_NAME} created.")
+                logger.info("Table %s created.", TABLE_NAME)
         except Exception as e:
-            print(f"Error creating table: {e}")
+            logger.exception("Error creating table: %s", e)
 
     def save_notification(self, user_id: str, actor_username: str, verb: str, target_info: str = ""):
         try:
@@ -50,7 +52,7 @@ class DynamoNotificationClient:
                 }
             )
         except Exception as e:
-            print(f"Error saving notification to DynamoDB: {e}")
+            logger.exception("Error saving notification to DynamoDB: %s", e)
 
     def get_notifications(self, user_id: str, limit: int = 20):
         try:
@@ -62,7 +64,7 @@ class DynamoNotificationClient:
             )
             return response.get('Items', [])
         except Exception as e:
-            print(f"Error fetching notifications from DynamoDB: {e}")
+            logger.exception("Error fetching notifications from DynamoDB: %s", e)
             return []
 
 dynamo_notification_client = DynamoNotificationClient()

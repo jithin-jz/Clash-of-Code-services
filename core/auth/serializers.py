@@ -101,8 +101,8 @@ class OTPRequestSerializer(serializers.Serializer):
 class OTPVerifySerializer(serializers.Serializer):
     """
     Validator for OTP verification payload.
-    Requires both email and the 4-6 digit OTP code.
+    Requires both email and a 6-digit OTP code.
     """
 
     email = serializers.EmailField(required=True)
-    otp = serializers.CharField(required=True, min_length=4, max_length=6)
+    otp = serializers.CharField(required=True, min_length=6, max_length=6)

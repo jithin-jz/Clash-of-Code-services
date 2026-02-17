@@ -488,18 +488,26 @@ class CertificateViewSet(viewsets.ViewSet):
         GET /api/certificates/my_certificate/
         """
         user = request.user
-        
-        # Check eligibility using CertificateService
+
+        # If certificate already exists, return it directly even if current
+        # progress changed since issuance.
+        existing_certificate = UserCertificate.objects.filter(user=user).first()
+        if existing_certificate:
+            serializer = UserCertificateSerializer(existing_certificate, context={'request': request})
+            return Response(serializer.data)
+
+        # No certificate yet: only create one if user is currently eligible.
         if not CertificateService.is_eligible(user):
             status_info = CertificateService.get_eligibility_status(user)
             return Response(
                 {
-                    "error": f"You need to complete {CertificateService.TOTAL_CHALLENGES} challenges to earn a certificate.",
+                    "has_certificate": False,
+                    "eligible": False,
                     "completed": status_info['completed_challenges'],
                     "required": status_info['required_challenges'],
                     "remaining": status_info['remaining_challenges']
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_200_OK
             )
         
         try:
@@ -508,8 +516,8 @@ class CertificateViewSet(viewsets.ViewSet):
         except ValueError as e:
             logger.error(f"Certificate eligibility check failed for {user.username}: {e}")
             return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": str(e), "has_certificate": False, "eligible": False},
+                status=status.HTTP_200_OK
             )
         except Exception as e:
             logger.error(f"Failed to create certificate record for {user.username}: {e}")

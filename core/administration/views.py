@@ -1,6 +1,5 @@
 from django.contrib.auth.models import User
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
@@ -139,7 +138,7 @@ class UserBlockToggleView(APIView):
 class UserDeleteView(APIView):
     """View to delete a user account."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
     @extend_schema(
         request=None,
@@ -147,9 +146,6 @@ class UserDeleteView(APIView):
         description="Delete a user account (Admin only).",
     )
     def delete(self, request, username):
-        if not (request.user.is_staff or request.user.is_superuser):
-            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-
         try:
             user = User.objects.get(username=username)
         except User.DoesNotExist:
@@ -192,11 +188,11 @@ class ChallengeAnalyticsView(APIView):
         for challenge in challenges:
             total_attempts = UserProgress.objects.filter(challenge=challenge).count()
             completions = UserProgress.objects.filter(
-                challenge=challenge, status="COMPLETED"
+                challenge=challenge, status=UserProgress.Status.COMPLETED
             ).count()
             
             avg_stars = UserProgress.objects.filter(
-                challenge=challenge, status="COMPLETED"
+                challenge=challenge, status=UserProgress.Status.COMPLETED
             ).aggregate(avg=Avg("stars"))["avg"] or 0
 
             analytics_data.append({

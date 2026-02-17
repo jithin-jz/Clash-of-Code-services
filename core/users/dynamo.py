@@ -1,10 +1,12 @@
 import os
 import boto3
 from datetime import datetime
+import logging
 
 DYNAMODB_URL = os.getenv("DYNAMODB_URL", "http://dynamodb:8000")
 REGION_NAME = os.getenv("AWS_REGION", "us-west-2")
 TABLE_NAME = "UserActivity"
+logger = logging.getLogger(__name__)
 
 class DynamoActivityClient:
     def __init__(self):
@@ -32,9 +34,9 @@ class DynamoActivityClient:
                     ],
                     ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
                 )
-                print(f"Table {TABLE_NAME} created.")
+                logger.info("Table %s created.", TABLE_NAME)
         except Exception as e:
-            print(f"Error creating table: {e}")
+            logger.exception("Error creating table: %s", e)
 
     def log_activity(self, user_id: str):
         """
@@ -54,7 +56,7 @@ class DynamoActivityClient:
                 ReturnValues="UPDATED_NEW"
             )
         except Exception as e:
-            print(f"Error logging activity to DynamoDB: {e}")
+            logger.exception("Error logging activity to DynamoDB: %s", e)
 
     def get_contribution_history(self, user_id: str, days: int = 365):
         """
@@ -69,7 +71,7 @@ class DynamoActivityClient:
             )
             return response.get('Items', [])
         except Exception as e:
-            print(f"Error fetching contribution history: {e}")
+            logger.exception("Error fetching contribution history: %s", e)
             return []
 
 dynamo_activity_client = DynamoActivityClient()

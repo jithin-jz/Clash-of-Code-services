@@ -33,6 +33,8 @@ class Settings(BaseSettings):
         return v
 
     def validate_keys(self):
+        if not self.INTERNAL_API_KEY or not self.INTERNAL_API_KEY.strip():
+            raise ValueError("INTERNAL_API_KEY must be set and non-empty")
         if not self.GROQ_API_KEY:
             raise ValueError("Missing LLM API Key: GROQ_API_KEY must be set")
 

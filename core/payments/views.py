@@ -1,4 +1,3 @@
-import razorpay
 from django.conf import settings
 from django.db import transaction
 from rest_framework import views, status, permissions
@@ -7,13 +6,23 @@ from rest_framework.response import Response
 from xpoint.services import XPService
 from .models import Payment
 from .serializers import CreateOrderSerializer, VerifyPaymentSerializer
+from auth.throttles import StoreRateThrottle
 
-# Initialize Razorpay Client
-client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+try:
+    import razorpay
+except Exception:  # pragma: no cover - optional runtime dependency
+    razorpay = None
+
+
+def _get_razorpay_client():
+    if razorpay is None:
+        raise RuntimeError("Razorpay SDK is not available")
+    return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 
 class CreateOrderView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [StoreRateThrottle]
     serializer_class = CreateOrderSerializer
 
     def post(self, request):
@@ -32,6 +41,7 @@ class CreateOrderView(views.APIView):
         }
 
         try:
+            client = _get_razorpay_client()
             order = client.order.create(data=data)
 
             XP_PACKAGES_MAP = {
@@ -77,6 +87,7 @@ class CreateOrderView(views.APIView):
 
 class VerifyPaymentView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [StoreRateThrottle]
     serializer_class = VerifyPaymentSerializer
 
     def post(self, request):
@@ -88,6 +99,7 @@ class VerifyPaymentView(views.APIView):
         data = serializer.validated_data
 
         try:
+            client = _get_razorpay_client()
             client.utility.verify_payment_signature(
                 {
                     "razorpay_order_id": data["razorpay_order_id"],
@@ -97,9 +109,14 @@ class VerifyPaymentView(views.APIView):
             )
 
             with transaction.atomic():
-                payment = Payment.objects.get(
+                payment = Payment.objects.select_for_update().get(
                     razorpay_order_id=data["razorpay_order_id"]
                 )
+                if payment.user_id != request.user.id:
+                    return Response(
+                        {"error": "Order does not belong to authenticated user"},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
 
                 if payment.status == "success":
                     return Response(
@@ -121,18 +138,21 @@ class VerifyPaymentView(views.APIView):
                 {"status": "success", "new_xp": new_xp}, status=status.HTTP_200_OK
             )
 
-        except razorpay.errors.SignatureVerificationError:
-            return Response(
-                {"error": "Invalid Signature - Payment verification failed"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         except Payment.DoesNotExist:
             return Response(
                 {"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND
             )
-
         except Exception as e:
+            if razorpay and isinstance(e, razorpay.errors.SignatureVerificationError):
+                return Response(
+                    {"error": "Invalid Signature - Payment verification failed"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if "Razorpay SDK is not available" in str(e):
+                return Response(
+                    {"error": "Payment service is temporarily unavailable"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

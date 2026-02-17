@@ -17,7 +17,16 @@ if not SECRET_KEY:
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "core"]
+def _parse_csv(value: str | None, default: list[str]) -> list[str]:
+    if not value:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+ALLOWED_HOSTS = _parse_csv(
+    os.getenv("ALLOWED_HOSTS"),
+    ["localhost", "127.0.0.1", "core"],
+)
 
 # Applications
 INSTALLED_APPS = [
@@ -170,22 +179,28 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-CORS_ALLOWED_ORIGINS = [
-    FRONTEND_URL,
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "http://localhost:5176",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:5175",
-    "http://127.0.0.1:5176",
-]
+CORS_ALLOWED_ORIGINS = _parse_csv(
+    os.getenv("CORS_ALLOWED_ORIGINS"),
+    [
+        FRONTEND_URL,
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:5176",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "http://127.0.0.1:5176",
+    ],
+)
 CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost",
-    "http://127.0.0.1",
-]
+CSRF_TRUSTED_ORIGINS = _parse_csv(
+    os.getenv("CSRF_TRUSTED_ORIGINS"),
+    [
+        "http://localhost",
+        "http://127.0.0.1",
+    ],
+)
 
 # drf_spectacular
 
@@ -232,6 +247,15 @@ JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
 JWT_ACCESS_TOKEN_LIFETIME = 60 * 60
 JWT_REFRESH_TOKEN_LIFETIME = 60 * 60 * 24 * 7
 
+# HttpOnly JWT cookie settings
+JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() == "true"
+JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
+JWT_ACCESS_COOKIE_NAME = os.getenv("JWT_ACCESS_COOKIE_NAME", "access_token")
+JWT_REFRESH_COOKIE_NAME = os.getenv("JWT_REFRESH_COOKIE_NAME", "refresh_token")
+
+if JWT_COOKIE_SECURE:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # OAuth
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
@@ -240,11 +264,6 @@ GITHUB_REDIRECT_URI = f"{FRONTEND_URL}/auth/github/callback"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = f"{FRONTEND_URL}/auth/google/callback"
-
-DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-DISCORD_REDIRECT_URI = f"{FRONTEND_URL}/auth/discord/callback"
-
 
 # Email Configuration — AWS SES
 EMAIL_BACKEND = "django_ses.SESBackend"

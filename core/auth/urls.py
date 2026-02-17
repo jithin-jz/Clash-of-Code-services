@@ -4,8 +4,6 @@ from .views import (
     GitHubCallbackView,
     GoogleAuthURLView,
     GoogleCallbackView,
-    DiscordAuthURLView,
-    DiscordCallbackView,
     RefreshTokenView,
     LogoutView,
     DeleteAccountView,
@@ -21,10 +19,6 @@ urlpatterns = [
     # Google OAuth
     path("google/", GoogleAuthURLView.as_view(), name="google_auth_url"),
     path("google/callback/", GoogleCallbackView.as_view(), name="google_callback"),
-    # Discord OAuth
-    path("discord/", DiscordAuthURLView.as_view(), name="discord_auth_url"),
-    path("discord/callback/", DiscordCallbackView.as_view(), name="discord_callback"),
-    # Auth endpoints
     # Auth endpoints
     path("refresh/", RefreshTokenView.as_view(), name="refresh_token"),
     path("logout/", LogoutView.as_view(), name="logout"),

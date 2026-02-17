@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status, Request
 from fastapi.responses import JSONResponse
 import os, json, jwt, asyncio, logging
 import redis.asyncio as redis
@@ -7,6 +7,7 @@ from typing import Dict, List
 from sqlmodel import select
 from sqlalchemy.orm import sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from schemas import ChatMessage as ChatMessageSchema, PresenceEvent, IncomingMessage
 from database import init_db, engine
@@ -32,6 +33,7 @@ app = FastAPI(title="Chat Service")
 # JWT Configuration (RS256 - asymmetric)
 ALGORITHM = "RS256"
 JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+JWT_ACCESS_COOKIE_NAME = os.getenv("JWT_ACCESS_COOKIE_NAME", "access_token")
 
 # Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -61,10 +63,20 @@ async def global_exception_handler(request, exc: Exception):
     )
 
 @app.get("/history/{room}")
-async def get_message_history(room: str, limit: int = 50, offset: int = 0, token: str = ""):
+async def get_message_history(
+    request: Request,
+    room: str,
+    limit: int = 50,
+    offset: int = 0,
+    token: str | None = None,
+):
     """Get paginated message history for a room."""
+    if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1]
     # Verify token
-    payload = verify_jwt(token)
+    payload = verify_jwt(token or "")
     if not payload:
         return JSONResponse(
             content={"error": "Invalid token"},
@@ -238,6 +250,8 @@ async def chat_ws(ws: WebSocket, room: str):
         auth = ws.headers.get("authorization")
         if auth and auth.startswith("Bearer "):
             token = auth.split(" ", 1)[1]
+    if not token:
+        token = ws.cookies.get(JWT_ACCESS_COOKIE_NAME)
 
     if not token:
         logger.warning(f"WebSocket connection rejected: no token (room={room})")
@@ -265,23 +279,32 @@ async def chat_ws(ws: WebSocket, room: str):
 
     # ---- Send history from DB ----
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with async_session() as session:
-        statement = select(ChatMessage).where(ChatMessage.room == room).order_by(ChatMessage.timestamp.desc()).limit(HISTORY_LIMIT)
-        result = await session.execute(statement)
-        messages = result.scalars().all()
-        # Front end expects oldest first
-        history_data = [
-            {
-                "room": m.room,
-                "message": m.message,
-                "user_id": m.user_id,
-                "username": m.username,
-                "avatar_url": m.avatar_url,
-                "timestamp": m.timestamp.isoformat(),
-                "reactions": m.reactions or {}
-            }
-            for m in reversed(messages)
-        ]
+    history_data = []
+    try:
+        async with async_session() as session:
+            statement = (
+                select(ChatMessage)
+                .where(ChatMessage.room == room)
+                .order_by(ChatMessage.timestamp.desc())
+                .limit(HISTORY_LIMIT)
+            )
+            result = await session.execute(statement)
+            messages = result.scalars().all()
+            # Front end expects oldest first
+            history_data = [
+                {
+                    "room": m.room,
+                    "message": m.message,
+                    "user_id": m.user_id,
+                    "username": m.username,
+                    "avatar_url": m.avatar_url,
+                    "timestamp": m.timestamp.isoformat(),
+                    "reactions": m.reactions or {}
+                }
+                for m in reversed(messages)
+            ]
+    except SQLAlchemyError as e:
+        logger.error("Failed to load chat history for room %s: %s", room, e)
 
     if history_data:
         await ws.send_text(json.dumps({

@@ -1,4 +1,5 @@
 from rest_framework import authentication, exceptions
+from django.conf import settings
 from django.contrib.auth.models import User
 from .utils import decode_token
 
@@ -15,19 +16,22 @@ class JWTAuthentication(authentication.BaseAuthentication):
         # 1. Retrieve the Authorization header from the incoming request
         auth_header = request.headers.get("Authorization")
 
-        # If no header is provided, return None to allow other
-        # authentication schemes to be attempted.
-        if not auth_header:
-            return None
+        token = None
+        if auth_header:
+            # 2. Extract the prefix and the token string
+            try:
+                prefix, token = auth_header.split(" ")
+                # Only process headers starting with 'bearer'
+                if prefix.lower() != "bearer":
+                    token = None
+            except ValueError:
+                # Handle malformed headers (e.g., header missing a space)
+                token = None
 
-        # 2. Extract the prefix and the token string
-        try:
-            prefix, token = auth_header.split(" ")
-            # Only process headers starting with 'bearer'
-            if prefix.lower() != "bearer":
-                return None
-        except ValueError:
-            # Handle malformed headers (e.g., header missing a space)
+        # Fallback to HttpOnly cookie
+        if not token:
+            token = request.COOKIES.get(settings.JWT_ACCESS_COOKIE_NAME)
+        if not token:
             return None
 
         # 3. Decode and validate the token signature and expiration

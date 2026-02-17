@@ -1,6 +1,7 @@
 from urllib.parse import urlencode
 from drf_spectacular.utils import extend_schema, OpenApiTypes
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
 from rest_framework import status, serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -21,6 +22,49 @@ from .serializers import (
 )
 from .services import AuthService
 from .utils import generate_access_token, decode_token, generate_tokens
+
+
+def _set_auth_cookies(response, access_token: str, refresh_token: str | None = None):
+    response.set_cookie(
+        settings.JWT_ACCESS_COOKIE_NAME,
+        access_token,
+        httponly=True,
+        secure=settings.JWT_COOKIE_SECURE,
+        samesite=settings.JWT_COOKIE_SAMESITE,
+        max_age=settings.JWT_ACCESS_TOKEN_LIFETIME,
+        path="/",
+    )
+    if refresh_token:
+        response.set_cookie(
+            settings.JWT_REFRESH_COOKIE_NAME,
+            refresh_token,
+            httponly=True,
+            secure=settings.JWT_COOKIE_SECURE,
+            samesite=settings.JWT_COOKIE_SAMESITE,
+            max_age=settings.JWT_REFRESH_TOKEN_LIFETIME,
+            path="/",
+        )
+
+
+def _clear_auth_cookies(response):
+    response.delete_cookie(settings.JWT_ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(settings.JWT_REFRESH_COOKIE_NAME, path="/")
+
+
+def _auth_success_response(request, user, result):
+    payload = {
+        "access_token": result["access_token"],
+        "refresh_token": result["refresh_token"],
+        "user": UserSerializer(user, context={"request": request}).data,
+    }
+    response = Response(payload, status=status.HTTP_200_OK)
+    _set_auth_cookies(
+        response,
+        access_token=result["access_token"],
+        refresh_token=result["refresh_token"],
+    )
+    return response
+
 
 # --- OAuth Views ---
 # These views handle the HTTP layer of OAuth: redirects and callbacks.
@@ -76,14 +120,7 @@ class GitHubCallbackView(APIView):
             # Login Failed (result contains error dict)
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                "access_token": result["access_token"],
-                "refresh_token": result["refresh_token"],
-                "user": UserSerializer(user, context={"request": request}).data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return _auth_success_response(request, user, result)
 
 
 class GoogleAuthURLView(APIView):
@@ -129,65 +166,7 @@ class GoogleCallbackView(APIView):
         if not user:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                "access_token": result["access_token"],
-                "refresh_token": result["refresh_token"],
-                "user": UserSerializer(user, context={"request": request}).data,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class DiscordAuthURLView(APIView):
-    """Return the Discord OAuth authorization URL."""
-
-    permission_classes = [AllowAny]
-    serializer_class = OAuthURLSerializer
-
-    def get(self, request):
-        state = request.query_params.get("state")
-        params = {
-            "client_id": settings.DISCORD_CLIENT_ID,
-            "redirect_uri": settings.DISCORD_REDIRECT_URI,
-            "response_type": "code",
-            "scope": "identify email",
-        }
-        if state:
-            params["state"] = state
-
-        url = f"https://discord.com/api/oauth2/authorize?{urlencode(params)}"
-        return Response({"url": url}, status=status.HTTP_200_OK)
-
-
-class DiscordCallbackView(APIView):
-    """Handle Discord OAuth callback."""
-
-    permission_classes = [AllowAny]
-    throttle_classes = [AuthRateThrottle]
-    serializer_class = OAuthCodeSerializer
-
-    def post(self, request):
-        code = request.data.get("code")
-        if not code:
-            return Response(
-                {"error": "Authorization code is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user, result = AuthService.handle_oauth_login("discord", code)
-
-        if not user:
-            return Response(result, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(
-            {
-                "access_token": result["access_token"],
-                "refresh_token": result["refresh_token"],
-                "user": UserSerializer(user, context={"request": request}).data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return _auth_success_response(request, user, result)
 
 
 # --- General User Views ---
@@ -200,12 +179,14 @@ class RefreshTokenView(APIView):
     serializer_class = RefreshTokenSerializer
 
     def post(self, request):
-        serializer = RefreshTokenSerializer(data=request.data)
-
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        token = serializer.validated_data["refresh_token"]
+        token = request.data.get("refresh_token") or request.COOKIES.get(
+            settings.JWT_REFRESH_COOKIE_NAME
+        )
+        if not token:
+            return Response(
+                {"error": "Refresh token is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         payload = decode_token(token)
 
         if not payload:
@@ -234,13 +215,15 @@ class RefreshTokenView(APIView):
 
         new_access_token = generate_access_token(user)
 
-        return Response(
+        response = Response(
             {
                 "access_token": new_access_token,
                 "user": UserSerializer(user, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
+        _set_auth_cookies(response, access_token=new_access_token)
+        return response
 
 
 class LogoutView(APIView):
@@ -255,10 +238,12 @@ class LogoutView(APIView):
     )
     def post(self, request):
         # In a stateless JWT system, logout is handled client-side
-        # We just return success here
-        return Response(
+        # We clear auth cookies as well.
+        response = Response(
             {"message": "Successfully logged out"}, status=status.HTTP_200_OK
         )
+        _clear_auth_cookies(response)
+        return response
 
 
 class DeleteAccountView(APIView):
@@ -301,14 +286,7 @@ class AdminLoginView(APIView):
         user = serializer.validated_data["user"]
         tokens = generate_tokens(user)
 
-        return Response(
-            {
-                "access_token": tokens["access_token"],
-                "refresh_token": tokens["refresh_token"],
-                "user": UserSerializer(user, context={"request": request}).data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return _auth_success_response(request, user, tokens)
 
 
 # --- OTP Views ---
@@ -331,7 +309,11 @@ class OTPRequestView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         email = serializer.validated_data["email"]
-        AuthService.request_otp(email)
+        try:
+            AuthService.request_otp(email)
+        except ValidationError as exc:
+            message = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
+            return Response({"error": message}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
 
@@ -344,6 +326,7 @@ class OTPVerifyView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [SensitiveOperationThrottle]
     serializer_class = OTPVerifySerializer
 
     def post(self, request):
@@ -359,11 +342,4 @@ class OTPVerifyView(APIView):
         if not user:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                "access_token": result["access_token"],
-                "refresh_token": result["refresh_token"],
-                "user": UserSerializer(user, context={"request": request}).data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return _auth_success_response(request, user, result)

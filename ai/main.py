@@ -1,11 +1,9 @@
-import os
-import sys
 import logging
 from typing import Optional
 import httpx
 import asyncio
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Header
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -19,8 +17,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 # Local imports
 from config import settings
 from prompts import (
-    HINT_GENERATION_SYSTEM_PROMPT, 
-    HINT_GENERATION_USER_TEMPLATE,
     HINT_GENERATION_SYSTEM_PROMPT, 
     HINT_GENERATION_USER_TEMPLATE
 )
@@ -93,9 +89,7 @@ async def generate_hint(
 ):
     logger.info(f"Received hint request for challenge: {request.challenge_slug}")
 
-    if not settings.INTERNAL_API_KEY:
-         logger.warning("Internal API Key not configured, skipping auth check (INSECURE)")
-    elif x_internal_api_key != settings.INTERNAL_API_KEY:
+    if x_internal_api_key != settings.INTERNAL_API_KEY:
         logger.warning(f"Unauthorized hint request. Key: {x_internal_api_key}")
         raise HTTPException(status_code=403, detail="Unauthorized")
     
