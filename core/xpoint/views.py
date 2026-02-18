@@ -1,3 +1,1 @@
-from django.shortcuts import render
-
-# Create your views here.
+"""XP views are intentionally empty; functionality is exposed via other apps."""

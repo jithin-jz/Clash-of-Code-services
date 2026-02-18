@@ -2,12 +2,12 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework import serializers
-from drf_spectacular.utils import extend_schema, OpenApiTypes
 
 from .models import UserProfile, UserFollow
 from .serializers import (
@@ -19,7 +19,7 @@ from .serializers import (
 
 
 from xpoint.services import XPService
-from .dynamo import dynamo_activity_client
+from challenges.models import UserProgress
 
 
 from django.utils.decorators import method_decorator
@@ -407,12 +407,23 @@ class ContributionHistoryView(APIView):
                 {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        items = dynamo_activity_client.get_contribution_history(user.id)
-        
-        # Format for frontend (usually expects a map or list of {date, count})
+        # Build a daily contribution map from completed challenges in Postgres.
+        contributions = (
+            UserProgress.objects.filter(
+                user=user,
+                status=UserProgress.Status.COMPLETED,
+                completed_at__isnull=False,
+            )
+            .annotate(date=TruncDate("completed_at"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .order_by("-date")[:365]
+        )
+
         formatted_data = [
-            {"date": item["date"], "count": int(item["contribution_count"])}
-            for item in items
+            {"date": row["date"].isoformat(), "count": row["count"]}
+            for row in contributions
+            if row["date"] is not None
         ]
 
         return Response(formatted_data, status=status.HTTP_200_OK)

@@ -91,7 +91,7 @@ class Command(BaseCommand):
 
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS('=' * 50))
-        self.stdout.write(self.style.SUCCESS(f'✓ Levels Loading Complete!'))
+        self.stdout.write(self.style.SUCCESS('✓ Levels Loading Complete!'))
         self.stdout.write(self.style.SUCCESS(f'  - Created: {created_count} challenges'))
         self.stdout.write(self.style.SUCCESS(f'  - Updated: {updated_count} challenges'))
         self.stdout.write(self.style.SUCCESS(f'  - Total: {created_count + updated_count} challenges'))

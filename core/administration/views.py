@@ -5,8 +5,7 @@ from django.core.paginator import Paginator
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
-from rest_framework import serializers
+from drf_spectacular.utils import extend_schema, OpenApiTypes
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from datetime import datetime, time, timedelta
@@ -25,7 +24,7 @@ from .serializers import (
     SystemIntegritySerializer,
 )
 from challenges.models import Challenge, UserProgress
-from store.models import StoreItem, Purchase
+from store.models import StoreItem
 from notifications.models import Notification
 from auth.throttles import SensitiveOperationThrottle
 
@@ -304,7 +303,6 @@ class UserDeleteView(APIView):
                 )
 
         reason = (request.query_params.get("reason") or "").strip()
-        target_username = user.username
         target_email = user.email
 
         log_admin_action(

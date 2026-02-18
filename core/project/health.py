@@ -3,7 +3,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import connection
 from django.core.cache import cache
-import redis
 
 
 class HealthCheckView(APIView):

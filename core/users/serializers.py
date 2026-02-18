@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema_field
-from .models import UserProfile, UserFollow
+from .models import UserProfile
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

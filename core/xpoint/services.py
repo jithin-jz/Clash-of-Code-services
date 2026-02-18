@@ -1,5 +1,4 @@
 import logging
-from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
@@ -25,7 +24,6 @@ class XPService:
             with transaction.atomic():
                 profile = UserProfile.objects.select_for_update().get(user=user)
 
-                old_xp = profile.xp
                 profile.xp += amount
                 profile.save()
 

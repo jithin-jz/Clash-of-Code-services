@@ -1,3 +1,4 @@
+import importlib
 from django.apps import AppConfig
 
 
@@ -6,6 +7,4 @@ class ChallengesConfig(AppConfig):
     name = "challenges"
 
     def ready(self):
-        import challenges.signals
-        from .dynamo import dynamo_challenge_client
-        dynamo_challenge_client.create_table_if_not_exists()
+        importlib.import_module("challenges.signals")

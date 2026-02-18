@@ -1,3 +1,1 @@
-from django.db import models
-
-# Create your models here.
+"""XP models are currently defined in users/challenges domain apps."""

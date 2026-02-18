@@ -200,7 +200,6 @@ async def generate_hint(
     # 2. Extract Data
     challenge_title = context_data.get("challenge_title", context_data.get("title", ""))
     challenge_description = context_data.get("challenge_description", context_data.get("description", ""))
-    test_code = context_data.get("test_code", "")  # kept for parity/future use
     
     # 3. RAG: Search for similar challenges
     rag_context = await get_rag_context(

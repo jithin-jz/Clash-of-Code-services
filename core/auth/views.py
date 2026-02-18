@@ -3,7 +3,7 @@ from drf_spectacular.utils import extend_schema, OpenApiTypes
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
-from rest_framework import status, serializers
+from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response

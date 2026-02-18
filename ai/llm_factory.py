@@ -1,8 +1,6 @@
 import logging
-from typing import Optional
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
-from fastapi import HTTPException
 from config import settings
 
 logger = logging.getLogger(__name__)

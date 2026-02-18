@@ -3,12 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from datetime import timedelta
 from .models import DailyCheckIn
 from .serializers import DailyCheckInSerializer
-from users.models import UserProfile
-
-from xpoint.services import XPService
 
 
 class CheckInView(APIView):

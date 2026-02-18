@@ -1,5 +1,3 @@
-from langchain_core.prompts import ChatPromptTemplate
-
 HINT_GENERATION_SYSTEM_PROMPT = """You are an expert coding tutor.
 Primary objective: help the learner think and implement, without giving the final answer.
 

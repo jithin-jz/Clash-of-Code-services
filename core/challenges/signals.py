@@ -2,29 +2,9 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import UserProgress
 from certificates.services import CertificateService
-from .dynamo import dynamo_challenge_client
-from users.dynamo import dynamo_activity_client
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ... (rest of the file)
-
-@receiver(post_save, sender=UserProgress)
-def track_progress_in_dynamo(sender, instance, created, **kwargs):
-    """
-    Shadow progress tracking in DynamoDB for fast gamification queries.
-    """
-    dynamo_challenge_client.update_progress(
-        user_id=instance.user.id,
-        challenge_slug=instance.challenge.slug,
-        status=instance.status,
-        stars=instance.stars
-    )
-    
-    # Log contribution for heatmap if completed
-    if instance.status == UserProgress.Status.COMPLETED:
-        dynamo_activity_client.log_activity(instance.user.id)
 
 # @receiver(post_save, sender=UserProfile)
 # def create_initial_challenge_signal(sender, instance, created, **kwargs):

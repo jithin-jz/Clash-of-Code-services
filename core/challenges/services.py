@@ -1,7 +1,5 @@
 from django.utils import timezone
-from django.db.models import Max, Q
 from .models import Challenge, UserProgress
-from users.models import UserProfile
 from xpoint.services import XPService
 
 

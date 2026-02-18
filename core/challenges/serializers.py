@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import Challenge, UserProgress
-from certificates.serializers import UserCertificateSerializer
 
 
 class ChallengeSerializer(serializers.ModelSerializer):

@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 # Base directory
@@ -42,7 +41,6 @@ INSTALLED_APPS = [
     "corsheaders",
     "drf_spectacular",
     "auth",
-    # 'chat',
     "rewards",
     "users",
     "xpoint",
@@ -91,16 +89,6 @@ TEMPLATES = [
 
 # WSGI
 WSGI_APPLICATION = "project.wsgi.application"
-
-# ASGI
-# ASGI_APPLICATION = "project.asgi.application"
-
-# Channels
-# CHANNEL_LAYERS = {
-#     "default": {
-#         "BACKEND": "channels.layers.InMemoryChannelLayer"
-#     }
-# }
 
 # Supabase
 
