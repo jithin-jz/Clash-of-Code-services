@@ -166,7 +166,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                     "required_xp": next_cost,
                     "current_xp": user_xp,
                     "shortage": next_cost - user_xp,
-                    "how_to_earn": "Complete challenges to earn XP (50 XP per challenge) or visit the shop.",
+                    "how_to_earn": "Complete challenges to earn XP or visit the shop.",
                 },
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )

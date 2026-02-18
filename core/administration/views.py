@@ -1,13 +1,15 @@
 import uuid
 
 from django.contrib.auth.models import User
+from django.core.paginator import Paginator
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 from rest_framework import serializers
 from django.utils import timezone
-from datetime import timedelta
+from django.utils.dateparse import parse_date, parse_datetime
+from datetime import datetime, time, timedelta
 from django.db import models
 from django.db.models import Sum, Avg, Count
 
@@ -45,6 +47,39 @@ def _parse_bool(value):
     if isinstance(value, str):
         return value.lower() in {"1", "true", "yes", "on"}
     return False
+
+
+def _parse_int(value, default, min_value=None, max_value=None):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if min_value is not None:
+        parsed = max(min_value, parsed)
+    if max_value is not None:
+        parsed = min(max_value, parsed)
+    return parsed
+
+
+def _parse_datetime_filter(value, end_of_day=False):
+    if not value:
+        return None
+
+    dt = parse_datetime(value)
+    if dt:
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+        return dt
+
+    d = parse_date(value)
+    if not d:
+        return None
+
+    if end_of_day:
+        dt = datetime.combine(d, time.max).replace(microsecond=0)
+    else:
+        dt = datetime.combine(d, time.min)
+    return timezone.make_aware(dt, timezone.get_current_timezone())
 
 
 def log_admin_action(admin, action, request=None, target_user=None, details=None):
@@ -120,12 +155,57 @@ class UserListView(APIView):
                 followers_total=Count("followers", distinct=True),
                 following_total=Count("following", distinct=True),
             )
-            .order_by("-date_joined")
         )
         if not request.user.is_superuser:
             users = users.filter(is_staff=False, is_superuser=False)
+
+        search = (request.query_params.get("search") or "").strip()
+        role = (request.query_params.get("role") or "").strip().lower()
+        status_filter = (request.query_params.get("status") or "").strip().lower()
+        page = _parse_int(request.query_params.get("page"), 1, min_value=1)
+        page_size = _parse_int(
+            request.query_params.get("page_size"),
+            25,
+            min_value=1,
+            max_value=100,
+        )
+
+        if search:
+            users = users.filter(
+                models.Q(username__icontains=search)
+                | models.Q(email__icontains=search)
+                | models.Q(first_name__icontains=search)
+                | models.Q(last_name__icontains=search)
+            )
+
+        if role == "user":
+            users = users.filter(is_staff=False, is_superuser=False)
+        elif role == "staff":
+            users = users.filter(is_staff=True, is_superuser=False)
+        elif role == "superuser":
+            users = users.filter(is_superuser=True)
+
+        if status_filter == "active":
+            users = users.filter(is_active=True)
+        elif status_filter == "blocked":
+            users = users.filter(is_active=False)
+
+        users = users.order_by("-date_joined", "id")
+
+        paginator = Paginator(users, page_size)
+        page_obj = paginator.get_page(page)
+        serialized = UserSerializer(
+            page_obj.object_list, many=True, context={"request": request}
+        ).data
+
         return Response(
-            UserSerializer(users, many=True, context={"request": request}).data,
+            {
+                "count": paginator.count,
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "results": serialized,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -371,33 +451,76 @@ class AdminAuditLogView(APIView):
         description="Retrieve administrative action logs.",
     )
     def get(self, request):
-        try:
-            limit = int(request.query_params.get("limit", 100))
-        except (TypeError, ValueError):
-            limit = 100
-        try:
-            offset = int(request.query_params.get("offset", 0))
-        except (TypeError, ValueError):
-            offset = 0
-
-        limit = max(1, min(limit, 500))
-        offset = max(0, offset)
-
         logs = AdminAuditLog.objects.select_related("admin", "target_user").all()
 
-        action = request.query_params.get("action")
-        admin_username = request.query_params.get("admin")
-        target_username = request.query_params.get("target")
+        action = (request.query_params.get("action") or "").strip()
+        admin_username = (request.query_params.get("admin") or "").strip()
+        target_username = (request.query_params.get("target") or "").strip()
+        search = (request.query_params.get("search") or "").strip()
+        ordering = request.query_params.get("ordering", "-timestamp")
+
+        date_from = _parse_datetime_filter(request.query_params.get("date_from"))
+        date_to = _parse_datetime_filter(
+            request.query_params.get("date_to"), end_of_day=True
+        )
+
+        # Backward-compatible mapping with limit/offset if callers still use it.
+        limit = _parse_int(request.query_params.get("limit"), 50, 1, 500)
+        offset = _parse_int(request.query_params.get("offset"), 0, 0, None)
+        page_size = _parse_int(
+            request.query_params.get("page_size"), limit, min_value=1, max_value=500
+        )
+        page = _parse_int(request.query_params.get("page"), 1, min_value=1)
+        if "offset" in request.query_params or "limit" in request.query_params:
+            page_size = limit
+            page = (offset // max(limit, 1)) + 1
+
         if action:
             logs = logs.filter(action=action)
         if admin_username:
-            logs = logs.filter(admin_username=admin_username)
+            logs = logs.filter(admin_username__icontains=admin_username)
         if target_username:
-            logs = logs.filter(target_username=target_username)
+            logs = logs.filter(target_username__icontains=target_username)
+        if search:
+            logs = logs.filter(
+                models.Q(action__icontains=search)
+                | models.Q(admin_username__icontains=search)
+                | models.Q(target_username__icontains=search)
+                | models.Q(request_id__icontains=search)
+            )
+        if date_from:
+            logs = logs.filter(timestamp__gte=date_from)
+        if date_to:
+            logs = logs.filter(timestamp__lte=date_to)
 
-        logs = logs[offset:offset + limit]
-        serializer = AdminAuditLogSerializer(logs, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        allowed_ordering = {
+            "timestamp",
+            "-timestamp",
+            "action",
+            "-action",
+            "admin_username",
+            "-admin_username",
+            "target_username",
+            "-target_username",
+        }
+        if ordering not in allowed_ordering:
+            ordering = "-timestamp"
+        tie_breaker = "-id" if ordering.startswith("-") else "id"
+        logs = logs.order_by(ordering, tie_breaker)
+
+        paginator = Paginator(logs, page_size)
+        page_obj = paginator.get_page(page)
+        serializer = AdminAuditLogSerializer(page_obj.object_list, many=True)
+        return Response(
+            {
+                "count": paginator.count,
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "results": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 

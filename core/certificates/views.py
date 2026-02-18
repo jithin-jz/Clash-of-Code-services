@@ -18,14 +18,19 @@ class CertificateViewSet(viewsets.ViewSet):
     @decorators.action(detail=False, methods=["get"])
     def my_certificate(self, request):
         user = request.user
+        is_eligible = CertificateService.is_eligible(user)
         existing_certificate = UserCertificate.objects.filter(user=user).first()
-        if existing_certificate:
+        if existing_certificate and is_eligible:
+            current_completed = CertificateService.get_completed_count(user)
+            if existing_certificate.completion_count != current_completed:
+                existing_certificate.completion_count = current_completed
+                existing_certificate.save(update_fields=["completion_count"])
             serializer = UserCertificateSerializer(
                 existing_certificate, context={"request": request}
             )
             return Response(serializer.data)
 
-        if not CertificateService.is_eligible(user):
+        if not is_eligible:
             status_info = CertificateService.get_eligibility_status(user)
             return Response(
                 {

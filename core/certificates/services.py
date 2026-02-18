@@ -6,6 +6,7 @@ Centralized logic for certificate eligibility, generation, and management.
 import logging
 
 from challenges.models import UserProgress
+from challenges.levels import LEVELS
 
 from .models import UserCertificate
 
@@ -15,25 +16,34 @@ logger = logging.getLogger(__name__)
 class CertificateService:
     """Service for managing user certificates."""
 
-    TOTAL_CHALLENGES = 53
+    @staticmethod
+    def get_required_challenges():
+        return len(LEVELS)
 
     @staticmethod
     def is_eligible(user):
         completed_count = CertificateService.get_completed_count(user)
-        return completed_count >= CertificateService.TOTAL_CHALLENGES
+        return completed_count >= CertificateService.get_required_challenges()
 
     @staticmethod
     def get_completed_count(user):
-        return UserProgress.objects.filter(
-            user=user, status=UserProgress.Status.COMPLETED
-        ).count()
+        required_orders = {level["order"] for level in LEVELS}
+        completed_orders = set(
+            UserProgress.objects.filter(
+                user=user,
+                status=UserProgress.Status.COMPLETED,
+                challenge__created_for_user__isnull=True,
+            ).values_list("challenge__order", flat=True)
+        )
+        return len(required_orders.intersection(completed_orders))
 
     @staticmethod
     def get_or_create_certificate(user):
+        required = CertificateService.get_required_challenges()
         if not CertificateService.is_eligible(user):
             completed = CertificateService.get_completed_count(user)
             raise ValueError(
-                f"User not eligible. Completed {completed}/{CertificateService.TOTAL_CHALLENGES} challenges."
+                f"User not eligible. Completed {completed}/{required} challenges."
             )
 
         certificate, created = UserCertificate.objects.get_or_create(
@@ -58,21 +68,23 @@ class CertificateService:
 
     @staticmethod
     def has_certificate(user):
-        return hasattr(user, "certificate")
+        certificate = getattr(user, "certificate", None)
+        if not certificate:
+            return False
+        required = CertificateService.get_required_challenges()
+        return bool(certificate.is_valid and certificate.completion_count >= required)
 
     @staticmethod
     def get_eligibility_status(user):
         completed_count = CertificateService.get_completed_count(user)
-        is_eligible = completed_count >= CertificateService.TOTAL_CHALLENGES
+        required = CertificateService.get_required_challenges()
+        is_eligible = completed_count >= required
         has_cert = CertificateService.has_certificate(user)
 
         return {
             "eligible": is_eligible,
             "completed_challenges": completed_count,
-            "required_challenges": CertificateService.TOTAL_CHALLENGES,
+            "required_challenges": required,
             "has_certificate": has_cert,
-            "remaining_challenges": max(
-                0, CertificateService.TOTAL_CHALLENGES - completed_count
-            ),
+            "remaining_challenges": max(0, required - completed_count),
         }
-

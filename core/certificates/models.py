@@ -6,7 +6,7 @@ from django.db import models
 
 class UserCertificate(models.Model):
     """
-    Certificate issued when user completes all 53 challenges.
+    Certificate issued when user completes the full global challenge track.
     """
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="certificate")
@@ -36,4 +36,3 @@ class UserCertificate(models.Model):
 
         base_url = settings.FRONTEND_URL or "http://localhost:5173"
         return f"{base_url}/verify/{self.certificate_id}"
-

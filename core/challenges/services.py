@@ -123,8 +123,8 @@ class ChallengeService:
 
         next_slug = ChallengeService._get_next_level_slug(challenge, user)
         
-        # Certificate generation now handled automatically by signals
-        # Signal triggers when user completes all 53 challenges
+        # Certificate generation is handled automatically by signals.
+        # Eligibility threshold comes from the configured global level set.
 
         return {
             "status": "completed" if newly_completed else "already_completed",
