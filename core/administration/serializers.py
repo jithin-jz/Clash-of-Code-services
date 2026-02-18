@@ -9,12 +9,26 @@ class AdminStatsSerializer(serializers.Serializer):
     total_gems = serializers.IntegerField()
 
 class AdminAuditLogSerializer(serializers.ModelSerializer):
-    admin = serializers.CharField(source="admin.username", read_only=True)
-    target = serializers.CharField(source="target_user.username", read_only=True, default="System")
+    admin = serializers.SerializerMethodField()
+    target = serializers.SerializerMethodField()
 
     class Meta:
         model = AdminAuditLog
-        fields = ["admin", "action", "target", "details", "timestamp"]
+        fields = [
+            "admin",
+            "action",
+            "target",
+            "details",
+            "timestamp",
+            "request_id",
+            "actor_ip",
+        ]
+
+    def get_admin(self, obj):
+        return obj.admin_username or (obj.admin.username if obj.admin else "System")
+
+    def get_target(self, obj):
+        return obj.target_username or (obj.target_user.username if obj.target_user else "System")
 
 class ChallengeAnalyticsSerializer(serializers.Serializer):
     id = serializers.IntegerField()

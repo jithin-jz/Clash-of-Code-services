@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.response import Response
@@ -12,7 +14,7 @@ from django.db.models import Sum, Avg, Count
 from users.models import UserProfile
 from users.serializers import UserSerializer
 from .models import AdminAuditLog
-from .permissions import IsAdminUser
+from .permissions import IsAdminUser, can_manage_user
 from .serializers import (
     AdminStatsSerializer,
     AdminAuditLogSerializer,
@@ -23,14 +25,41 @@ from .serializers import (
 from challenges.models import Challenge, UserProgress
 from store.models import StoreItem, Purchase
 from notifications.models import Notification
+from auth.throttles import SensitiveOperationThrottle
 
-def log_admin_action(admin, action, target_user=None, details=None):
+
+def _request_ip(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+def _request_id(request):
+    return request.headers.get("X-Request-ID") or str(uuid.uuid4())
+
+
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def log_admin_action(admin, action, request=None, target_user=None, details=None):
     """Helper to record administrative actions in the audit log."""
     AdminAuditLog.objects.create(
         admin=admin,
+        admin_username=admin.username if admin else "system",
         action=action,
         target_user=target_user,
-        details=details or {}
+        target_username=target_user.username if target_user else "",
+        target_email=target_user.email if target_user else "",
+        details=details or {},
+        actor_ip=_request_ip(request) if request else None,
+        user_agent=(request.headers.get("User-Agent", "")[:512] if request else ""),
+        request_id=_request_id(request) if request else "",
     )
 
 
@@ -85,7 +114,16 @@ class UserListView(APIView):
         description="List all users (Admin only).",
     )
     def get(self, request):
-        users = User.objects.all().order_by("-date_joined")
+        users = (
+            User.objects.select_related("profile")
+            .annotate(
+                followers_total=Count("followers", distinct=True),
+                following_total=Count("following", distinct=True),
+            )
+            .order_by("-date_joined")
+        )
+        if not request.user.is_superuser:
+            users = users.filter(is_staff=False, is_superuser=False)
         return Response(
             UserSerializer(users, many=True, context={"request": request}).data,
             status=status.HTTP_200_OK,
@@ -96,6 +134,7 @@ class UserBlockToggleView(APIView):
     """View to toggle user active status."""
 
     permission_classes = [IsAdminUser]
+    throttle_classes = [SensitiveOperationThrottle]
 
     @extend_schema(
         request=None,
@@ -110,20 +149,38 @@ class UserBlockToggleView(APIView):
                 {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        if user == request.user:
-            return Response(
-                {"error": "Cannot block yourself"}, status=status.HTTP_400_BAD_REQUEST
-            )
+        allowed, message = can_manage_user(request.user, user)
+        if not allowed:
+            return Response({"error": message}, status=status.HTTP_403_FORBIDDEN)
+
+        reason = (request.data.get("reason") or "").strip()
 
         # Toggle status directly on user model
-        user.is_active = not user.is_active
-        user.save()
+        new_is_active = not user.is_active
+
+        # Do not allow disabling the final active superuser account.
+        if user.is_superuser and not new_is_active:
+            active_superusers = User.objects.filter(is_superuser=True, is_active=True).count()
+            if active_superusers <= 1:
+                return Response(
+                    {"error": "Cannot block the last active superuser account."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        previous_is_active = user.is_active
+        user.is_active = new_is_active
+        user.save(update_fields=["is_active"])
 
         log_admin_action(
             admin=request.user,
             action="TOGGLE_USER_BLOCK",
             target_user=user,
-            details={"is_active": user.is_active}
+            request=request,
+            details={
+                "before": {"is_active": previous_is_active},
+                "after": {"is_active": user.is_active},
+                "reason": reason,
+            },
         )
 
         return Response(
@@ -139,6 +196,7 @@ class UserDeleteView(APIView):
     """View to delete a user account."""
 
     permission_classes = [IsAdminUser]
+    throttle_classes = [SensitiveOperationThrottle]
 
     @extend_schema(
         request=None,
@@ -153,16 +211,28 @@ class UserDeleteView(APIView):
                 {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        if user == request.user:
-            return Response(
-                {"error": "Cannot delete yourself"}, status=status.HTTP_400_BAD_REQUEST
-            )
+        allowed, message = can_manage_user(request.user, user)
+        if not allowed:
+            return Response({"error": message}, status=status.HTTP_403_FORBIDDEN)
+
+        if user.is_superuser:
+            superuser_count = User.objects.filter(is_superuser=True).count()
+            if superuser_count <= 1:
+                return Response(
+                    {"error": "Cannot delete the last superuser account."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        reason = (request.query_params.get("reason") or "").strip()
+        target_username = user.username
+        target_email = user.email
 
         log_admin_action(
             admin=request.user,
             action="DELETE_USER",
             target_user=user,
-            details={"username": username}
+            request=request,
+            details={"username": username, "email": target_email, "reason": reason},
         )
 
         user.delete()
@@ -183,17 +253,28 @@ class ChallengeAnalyticsView(APIView):
     )
     def get(self, request):
         challenges = Challenge.objects.all()
+        progress_summary = (
+            UserProgress.objects.values("challenge_id")
+            .annotate(
+                total_attempts=Count("id"),
+                completions=Count(
+                    "id",
+                    filter=models.Q(status=UserProgress.Status.COMPLETED),
+                ),
+                avg_stars=Avg(
+                    "stars",
+                    filter=models.Q(status=UserProgress.Status.COMPLETED),
+                ),
+            )
+        )
+        summary_map = {row["challenge_id"]: row for row in progress_summary}
         analytics_data = []
 
         for challenge in challenges:
-            total_attempts = UserProgress.objects.filter(challenge=challenge).count()
-            completions = UserProgress.objects.filter(
-                challenge=challenge, status=UserProgress.Status.COMPLETED
-            ).count()
-            
-            avg_stars = UserProgress.objects.filter(
-                challenge=challenge, status=UserProgress.Status.COMPLETED
-            ).aggregate(avg=Avg("stars"))["avg"] or 0
+            summary = summary_map.get(challenge.id, {})
+            total_attempts = summary.get("total_attempts", 0)
+            completions = summary.get("completions", 0)
+            avg_stars = summary.get("avg_stars") or 0
 
             analytics_data.append({
                 "id": challenge.id,
@@ -242,6 +323,7 @@ class StoreAnalyticsView(APIView):
 class GlobalNotificationView(APIView):
     """View to send notifications to all users."""
     permission_classes = [IsAdminUser]
+    throttle_classes = [SensitiveOperationThrottle]
 
     def post(self, request):
         verb = request.data.get("message")
@@ -251,21 +333,33 @@ class GlobalNotificationView(APIView):
         # Validate message length
         if len(verb) > 500:
             return Response({"error": "Message too long (max 500 characters)"}, status=status.HTTP_400_BAD_REQUEST)
+        include_staff = _parse_bool(request.data.get("include_staff", False))
+        users_qs = User.objects.filter(is_active=True).exclude(id=request.user.id)
+        if not include_staff:
+            users_qs = users_qs.filter(is_staff=False, is_superuser=False)
 
-        users = User.objects.all()
+        recipient_ids = list(users_qs.values_list("id", flat=True))
         notifications = [
-            Notification(recipient=user, actor=request.user, verb=verb)
-            for user in users
+            Notification(recipient_id=user_id, actor=request.user, verb=verb)
+            for user_id in recipient_ids
         ]
-        Notification.objects.bulk_create(notifications)
+        Notification.objects.bulk_create(notifications, batch_size=1000)
+
+        reason = (request.data.get("reason") or "").strip()
 
         log_admin_action(
             admin=request.user,
             action="SEND_GLOBAL_NOTIFICATION",
-            details={"message": verb, "recipient_count": users.count()}
+            request=request,
+            details={
+                "message": verb,
+                "recipient_count": len(recipient_ids),
+                "include_staff": include_staff,
+                "reason": reason,
+            },
         )
 
-        return Response({"message": f"Broadcast sent to {users.count()} users"}, status=status.HTTP_200_OK)
+        return Response({"message": f"Broadcast sent to {len(recipient_ids)} users"}, status=status.HTTP_200_OK)
 
 
 class AdminAuditLogView(APIView):
@@ -277,7 +371,31 @@ class AdminAuditLogView(APIView):
         description="Retrieve administrative action logs.",
     )
     def get(self, request):
-        logs = AdminAuditLog.objects.all()[:100]  # Last 100 actions
+        try:
+            limit = int(request.query_params.get("limit", 100))
+        except (TypeError, ValueError):
+            limit = 100
+        try:
+            offset = int(request.query_params.get("offset", 0))
+        except (TypeError, ValueError):
+            offset = 0
+
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+
+        logs = AdminAuditLog.objects.select_related("admin", "target_user").all()
+
+        action = request.query_params.get("action")
+        admin_username = request.query_params.get("admin")
+        target_username = request.query_params.get("target")
+        if action:
+            logs = logs.filter(action=action)
+        if admin_username:
+            logs = logs.filter(admin_username=admin_username)
+        if target_username:
+            logs = logs.filter(target_username=target_username)
+
+        logs = logs[offset:offset + limit]
         serializer = AdminAuditLogSerializer(logs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

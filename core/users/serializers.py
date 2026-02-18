@@ -96,11 +96,15 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(int)
     def get_followers_count(self, obj):
         # Count of users following this user
+        if hasattr(obj, "followers_total"):
+            return obj.followers_total
         return obj.followers.count()
 
     @extend_schema_field(int)
     def get_following_count(self, obj):
         # Count of users this user follows
+        if hasattr(obj, "following_total"):
+            return obj.following_total
         return obj.following.count()
 
 
