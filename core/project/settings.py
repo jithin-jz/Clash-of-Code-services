@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
@@ -149,6 +150,8 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # Firebase
 FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+if FIREBASE_SERVICE_ACCOUNT_PATH and not os.path.isabs(FIREBASE_SERVICE_ACCOUNT_PATH):
+    FIREBASE_SERVICE_ACCOUNT_PATH = os.path.join(BASE_DIR, FIREBASE_SERVICE_ACCOUNT_PATH)
 
 
 # Cache Configuration
@@ -285,3 +288,22 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,  # 5 minutes
     },
 }
+
+# --- Test Overrides ---
+if "test" in sys.argv:
+    # Use SQLite for tests
+    DATABASES["default"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "test_db.sqlite3",
+    }
+    # Use memory cache for tests
+    CACHES["default"] = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    }
+    # Celery settings for tests
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_BROKER_URL = "memory://"
+    CELERY_RESULT_BACKEND = "cache+memory://"
+    # Use memory email backend
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+

@@ -1,0 +1,20 @@
+Creating test database for alias 'default'...
+
+Found 7 test(s).
+System check identified no issues (0 silenced).
+....E..
+======================================================================
+ERROR: test_update_profile (users.tests.test_profiles.ProfileTests.test_update_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Jithi\Desktop\coc\services\core\users\tests\test_profiles.py", line 24, in test_update_profile
+    self.assertEqual(response.data["bio"], "New Bio")
+                     ~~~~~~~~~~~~~^^^^^^^
+KeyError: 'bio'
+
+----------------------------------------------------------------------
+Ran 7 tests in 3.370s
+
+FAILED (errors=1)
+Destroying test database for alias 'default'...
+
