@@ -32,8 +32,8 @@ class DynamoClient:
                     await dynamo.create_table(
                         TableName=TABLE_NAME,
                         KeySchema=[
-                            {'AttributeName': 'room_id', 'KeyType': 'HASH'},  # Partition Key
-                            {'AttributeName': 'timestamp', 'KeyType': 'RANGE'} # Sort Key
+                            {'AttributeName': 'room_id', 'KeyType': 'HASH'},
+                            {'AttributeName': 'timestamp', 'KeyType': 'RANGE'}
                         ],
                         AttributeDefinitions=[
                             {'AttributeName': 'room_id', 'AttributeType': 'S'},
@@ -42,10 +42,24 @@ class DynamoClient:
                         ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
                     )
                     logger.info("Table %s created.", TABLE_NAME)
+                if "UserActivity" not in tables:
+                    await dynamo.create_table(
+                        TableName="UserActivity",
+                        KeySchema=[
+                            {'AttributeName': 'user_id', 'KeyType': 'HASH'},
+                            {'AttributeName': 'date', 'KeyType': 'RANGE'}
+                        ],
+                        AttributeDefinitions=[
+                            {'AttributeName': 'user_id', 'AttributeType': 'S'},
+                            {'AttributeName': 'date', 'AttributeType': 'S'}
+                        ],
+                        ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
+                    )
+                    logger.info("Table UserActivity created.")
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code == "ResourceInUseException":
-                logger.info("Table %s already exists.", TABLE_NAME)
+                logger.info("Table already exists.")
             else:
                 logger.exception("Error creating table: %s", e)
         except Exception as e:
