@@ -57,7 +57,9 @@ class AdminTablesTest(TestCase):
 
     def test_users_endpoint_supports_filters(self):
         self.client.force_authenticate(user=self.super_admin)
-        response = self.client.get("/api/admin/users/?role=user&status=active&search=user")
+        response = self.client.get(
+            "/api/admin/users/?role=user&status=active&search=user"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["count"] > 0)

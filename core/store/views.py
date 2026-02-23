@@ -1,13 +1,11 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
 from .models import StoreItem, Purchase
 from .serializers import StoreItemSerializer
 from xpoint.services import XPService
-
-from rest_framework.permissions import IsAdminUser
 from auth.throttles import StoreRateThrottle
 
 import os
@@ -16,18 +14,19 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
-from rest_framework import serializers
-
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 
 
 @method_decorator(never_cache, name="dispatch")
 class StoreItemViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing store items (Themes, Fonts, Effects, etc.).
+    """
+
     serializer_class = StoreItemSerializer
 
     def get_queryset(self):
-        # Admin should be able to manage all items, including inactive.
         if self.request.user.is_staff:
             return StoreItem.objects.all().order_by("-created_at")
         return StoreItem.objects.filter(is_active=True).order_by("-created_at")
@@ -39,6 +38,10 @@ class StoreItemViewSet(viewsets.ModelViewSet):
 
 
 class PurchaseItemView(APIView):
+    """
+    API View to purchase a store item using XP.
+    """
+
     permission_classes = [IsAuthenticated]
     throttle_classes = [StoreRateThrottle]
 
@@ -51,17 +54,18 @@ class PurchaseItemView(APIView):
                     "status": serializers.CharField(),
                     "message": serializers.CharField(),
                     "remaining_xp": serializers.IntegerField(),
+                    "item": StoreItemSerializer(),
                 },
             ),
             400: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
         },
-        description="Purchase a store item using XP.",
+        description="Purchase a store item using user's accumulated XP.",
     )
     def post(self, request, pk=None):
         item = get_object_or_404(StoreItem, pk=pk, is_active=True)
         user = request.user
 
-        # Check if already purchased (if we enforce unique)
         if Purchase.objects.filter(user=user, item=item).exists():
             return Response(
                 {"error": "You already own this item."},
@@ -70,13 +74,10 @@ class PurchaseItemView(APIView):
 
         if user.profile.xp < item.cost:
             return Response(
-                {
-                    "error": f"Insufficient XP. Need {item.cost - user.profile.xp} more."
-                },
+                {"error": f"Insufficient XP. Need {item.cost - user.profile.xp} more."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Process Transaction using XPService
         remaining_xp = XPService.add_xp(
             user,
             -item.cost,
@@ -98,12 +99,23 @@ class PurchaseItemView(APIView):
 
 
 class PurchasedItemsView(APIView):
+    """
+    API View to list all items purchased by the authenticated user.
+    """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        request=None,
-        responses={200: OpenApiTypes.OBJECT},
-        description="Get purchased items and currently equipped cosmetics.",
+        responses={
+            200: inline_serializer(
+                name="PurchasedItemsResponse",
+                fields={
+                    "purchased_items": StoreItemSerializer(many=True),
+                    "equipped_items": serializers.DictField(),
+                },
+            )
+        },
+        description="Get a list of all purchased items and the currently equipped cosmetics.",
     )
     def get(self, request):
         purchases = (
@@ -134,27 +146,25 @@ class PurchasedItemsView(APIView):
 
 
 class ImageUploadView(APIView):
+    """
+    API View for admins to upload images for store items.
+    """
+
     permission_classes = [IsAdminUser]
 
     @extend_schema(
         request={
             "multipart/form-data": inline_serializer(
-                name="ImageUploadRequest",
-                fields={
-                    "image": serializers.FileField(),
-                }
+                name="ImageUploadRequest", fields={"image": serializers.FileField()}
             )
         },
         responses={
             201: inline_serializer(
-                name="ImageUploadResponse",
-                fields={
-                    "url": serializers.CharField(),
-                }
+                name="ImageUploadResponse", fields={"url": serializers.CharField()}
             ),
             400: OpenApiTypes.OBJECT,
         },
-        description="Upload an image for store items (Admin only).",
+        description="Upload an image asset for store items (Admin only).",
     )
     def post(self, request):
         file_obj = request.FILES.get("image")
@@ -163,7 +173,6 @@ class ImageUploadView(APIView):
                 {"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Save to media/store/
         directory = os.path.join("store")
         path = default_storage.save(
             os.path.join(directory, file_obj.name), ContentFile(file_obj.read())
@@ -175,34 +184,30 @@ class ImageUploadView(APIView):
 
 
 class EquipItemView(APIView):
+    """
+    API View to equip a purchased cosmetic item.
+    """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         request=inline_serializer(
-            name="EquipItemRequest",
-            fields={
-                "item_id": serializers.IntegerField(),
-            }
+            name="EquipItemRequest", fields={"item_id": serializers.IntegerField()}
         ),
-        responses={
-            200: OpenApiTypes.OBJECT,
-            400: OpenApiTypes.OBJECT,
-        },
-        description="Equip a purchased item (theme, font, effect, etc.).",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+        description="Equip a purchased cosmetic item (Theme, Font, Effect, Victory animation).",
     )
     def post(self, request):
         item_id = request.data.get("item_id")
         item = get_object_or_404(StoreItem, pk=item_id, is_active=True)
         user = request.user
 
-        # Verify ownership
         if not Purchase.objects.filter(user=user, item=item).exists():
             return Response(
                 {"error": "You do not own this item."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Handle Themes
         if item.category == "THEME":
             theme_key = item.item_data.get("theme_key")
             if not theme_key:
@@ -221,7 +226,6 @@ class EquipItemView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # Handle Fonts
         if item.category == "FONT":
             font_family = item.item_data.get("font_family")
             if not font_family:
@@ -239,7 +243,6 @@ class EquipItemView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # Handle Effects
         if item.category == "EFFECT":
             effect_key = item.item_data.get("effect_key") or item.item_data.get(
                 "effect_type"
@@ -260,7 +263,6 @@ class EquipItemView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # Handle Victory
         if item.category == "VICTORY":
             victory_key = item.item_data.get("victory_key") or item.item_data.get(
                 "animation_type"
@@ -288,20 +290,23 @@ class EquipItemView(APIView):
 
 
 class UnequipItemView(APIView):
+    """
+    API View to unequip items from a specific category.
+    """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         request=inline_serializer(
             name="UnequipItemRequest",
             fields={
-                "category": serializers.ChoiceField(choices=["THEME", "FONT", "EFFECT", "VICTORY"]),
-            }
+                "category": serializers.ChoiceField(
+                    choices=["THEME", "FONT", "EFFECT", "VICTORY"]
+                ),
+            },
         ),
-        responses={
-            200: OpenApiTypes.OBJECT,
-            400: OpenApiTypes.OBJECT,
-        },
-        description="Unequip an item/category.",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+        description="Reset a cosmetic category to its default value.",
     )
     def post(self, request):
         category = request.data.get("category")

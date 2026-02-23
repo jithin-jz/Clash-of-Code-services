@@ -20,9 +20,9 @@ class StoreItemSerializer(serializers.ModelSerializer):
             "is_owned",
         ]
 
-    @extend_schema_field(serializers.BooleanField)
+    @extend_schema_field(bool)
     def get_is_owned(self, obj):
-        user = self.context.get("request").user
-        if user.is_authenticated:
-            return Purchase.objects.filter(user=user, item=obj).exists()
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return Purchase.objects.filter(user=request.user, item=obj).exists()
         return False

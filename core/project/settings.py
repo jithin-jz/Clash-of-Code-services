@@ -17,6 +17,7 @@ if not SECRET_KEY:
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+
 def _parse_csv(value: str | None, default: list[str]) -> list[str]:
     if not value:
         return default
@@ -118,8 +119,18 @@ DATABASES = {
 }
 
 # Validate database configuration
-if not all([os.getenv("DB_NAME"), os.getenv("DB_USER"), os.getenv("DB_PASSWORD"), os.getenv("DB_HOST"), os.getenv("DB_PORT")]):
-    raise ImproperlyConfigured("Database configuration incomplete. Ensure DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, and DB_PORT are set.")
+if not all(
+    [
+        os.getenv("DB_NAME"),
+        os.getenv("DB_USER"),
+        os.getenv("DB_PASSWORD"),
+        os.getenv("DB_HOST"),
+        os.getenv("DB_PORT"),
+    ]
+):
+    raise ImproperlyConfigured(
+        "Database configuration incomplete. Ensure DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, and DB_PORT are set."
+    )
 
 
 # Password validation
@@ -152,19 +163,21 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 # Firebase
 FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
 if FIREBASE_SERVICE_ACCOUNT_PATH and not os.path.isabs(FIREBASE_SERVICE_ACCOUNT_PATH):
-    FIREBASE_SERVICE_ACCOUNT_PATH = os.path.join(BASE_DIR, FIREBASE_SERVICE_ACCOUNT_PATH)
+    FIREBASE_SERVICE_ACCOUNT_PATH = os.path.join(
+        BASE_DIR, FIREBASE_SERVICE_ACCOUNT_PATH
+    )
 
 
 # Cache Configuration
 CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': os.getenv("REDIS_URL", "redis://redis:6379/0"),
-        'OPTIONS': {
-            'db': 1,  # Use different Redis DB than Celery
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/0"),
+        "OPTIONS": {
+            "db": 1,  # Use different Redis DB than Celery
         },
-        'KEY_PREFIX': 'coc',
-        'TIMEOUT': 300,  # Default timeout: 5 minutes
+        "KEY_PREFIX": "coc",
+        "TIMEOUT": 300,  # Default timeout: 5 minutes
     }
 }
 
@@ -200,9 +213,16 @@ CSRF_TRUSTED_ORIGINS = _parse_csv(
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Clash of Code API",
-    "DESCRIPTION": "API documentation for the Clash of Code gamification platform",
+    "DESCRIPTION": "Internal API documentation for the Clash of Code platform. This API handles authentication, user profiles, challenges, store purchases, and real-time notifications.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api/",
+    "ENUM_NAME_OVERRIDES": {
+        "UserProgressStatus": "challenges.models.UserProgress.Status",
+    },
+    "SORT_OPERATIONS": True,
+    "CAMELIZE_NAMES": False,
 }
 
 # Django REST Framework
@@ -219,14 +239,28 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": os.getenv("THROTTLE_ANON_RATE", "20/minute"),       # General anonymous limit
-        "user": os.getenv("THROTTLE_USER_RATE", "100/minute"),      # General authenticated user limit
-        "otp": os.getenv("THROTTLE_OTP_RATE", "5/minute"),          # Strict limit for OTP requests (SMS cost)
-        "auth": os.getenv("THROTTLE_AUTH_RATE", "10/minute"),       # Login/register attempts (brute force protection)
-        "store": os.getenv("THROTTLE_STORE_RATE", "30/minute"),     # Store/purchase operations
-        "notifications": os.getenv("THROTTLE_NOTIFICATIONS_RATE", "180/minute"),  # Notification polling/read operations
-        "sensitive": os.getenv("THROTTLE_SENSITIVE_RATE", "5/minute"),   # Password reset, email change
-        "burst": os.getenv("THROTTLE_BURST_RATE", "10/second"),      # Short burst protection
+        "anon": os.getenv("THROTTLE_ANON_RATE", "20/minute"),  # General anonymous limit
+        "user": os.getenv(
+            "THROTTLE_USER_RATE", "100/minute"
+        ),  # General authenticated user limit
+        "otp": os.getenv(
+            "THROTTLE_OTP_RATE", "5/minute"
+        ),  # Strict limit for OTP requests (SMS cost)
+        "auth": os.getenv(
+            "THROTTLE_AUTH_RATE", "10/minute"
+        ),  # Login/register attempts (brute force protection)
+        "store": os.getenv(
+            "THROTTLE_STORE_RATE", "30/minute"
+        ),  # Store/purchase operations
+        "notifications": os.getenv(
+            "THROTTLE_NOTIFICATIONS_RATE", "180/minute"
+        ),  # Notification polling/read operations
+        "sensitive": os.getenv(
+            "THROTTLE_SENSITIVE_RATE", "5/minute"
+        ),  # Password reset, email change
+        "burst": os.getenv(
+            "THROTTLE_BURST_RATE", "10/second"
+        ),  # Short burst protection
     },
 }
 
@@ -265,7 +299,9 @@ EMAIL_BACKEND = "django_ses.SESBackend"
 AWS_SES_REGION_NAME = os.getenv("AWS_SES_REGION", "ap-south-1")
 AWS_SES_REGION_ENDPOINT = f"email.{AWS_SES_REGION_NAME}.amazonaws.com"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "jzdieheart@gmail.com")
-OTP_EMAIL_ASYNC = os.getenv("OTP_EMAIL_ASYNC", "false" if DEBUG else "true").lower() == "true"
+OTP_EMAIL_ASYNC = (
+    os.getenv("OTP_EMAIL_ASYNC", "false" if DEBUG else "true").lower() == "true"
+)
 
 # Razorpay
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")
@@ -274,11 +310,18 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET")
 
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-CELERY_RESULT_BACKEND = "django-db"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+# Celery Result Backend — django-db stores results in PostgreSQL
+CELERY_RESULT_BACKEND = "django-db"
+CELERY_CACHE_BACKEND = "django-cache"  # Cache backend for result metadata
+CELERY_RESULT_EXTENDED = True  # Store task args, kwargs, worker, etc.
+CELERY_RESULT_EXPIRES = 60 * 60 * 24  # Auto-expire results after 24 hours
+CELERY_TASK_TRACK_STARTED = True  # Track STARTED state in result backend
+CELERY_TASK_STORE_ERRORS_EVEN_IF_IGNORED = True  # Always persist error tracebacks
 
 # Celery Beat
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
@@ -287,6 +330,10 @@ CELERY_BEAT_SCHEDULE = {
     "update-leaderboard-every-5-minutes": {
         "task": "learning.tasks.update_leaderboard_cache",
         "schedule": 300.0,  # 5 minutes
+    },
+    "cleanup-celery-results-daily": {
+        "task": "project.tasks.cleanup_old_task_results",
+        "schedule": 60 * 60 * 24,  # Every 24 hours
     },
 }
 
@@ -307,4 +354,3 @@ if "test" in sys.argv:
     CELERY_RESULT_BACKEND = "cache+memory://"
     # Use memory email backend
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-

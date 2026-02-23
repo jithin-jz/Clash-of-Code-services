@@ -15,21 +15,27 @@ class Challenge(models.Model):
         help_text="Hidden python code to assert the user solution"
     )
     order = models.IntegerField(default=0, help_text="Order in the campaign level map")
-    
+
     # New Field: created_for_user
     # If null, it is a global level (e.g. Level 1)
     # If set, it is a personalized level for that user only
-    created_for_user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="personalized_challenges")
+    created_for_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="personalized_challenges",
+    )
 
     xp_reward = models.IntegerField(default=50)
     time_limit = models.IntegerField(
         default=300, help_text="Suggested time in seconds for bonus"
     )
-    
+
     # Star rating target time
     target_time_seconds = models.IntegerField(
         default=600,
-        help_text="Target completion time for 3-star rating (10 minutes default)"
+        help_text="Target completion time for 3-star rating (10 minutes default)",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -39,9 +45,12 @@ class Challenge(models.Model):
         ordering = ["order"]
 
     def __str__(self):
-        user_str = f" [User: {self.created_for_user.username}]" if self.created_for_user else " [Global]"
+        user_str = (
+            f" [User: {self.created_for_user.username}]"
+            if self.created_for_user
+            else " [Global]"
+        )
         return f"{self.order}. {self.title}{user_str}"
-
 
 
 class UserProgress(models.Model):
@@ -67,19 +76,18 @@ class UserProgress(models.Model):
     ai_hints_purchased = models.IntegerField(
         default=0, help_text="Number of AI hints purchased for this level."
     )
-    
+
     # Time tracking for star rating
     started_at = models.DateTimeField(
-        null=True, blank=True,
-        help_text="When user first accessed this challenge"
+        null=True, blank=True, help_text="When user first accessed this challenge"
     )
-    
+
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ["user", "challenge"]
 
     def __str__(self):
-        return f"Progress: {self.user.username} - {self.challenge.title} ({self.status})"
-
-
+        return (
+            f"Progress: {self.user.username} - {self.challenge.title} ({self.status})"
+        )

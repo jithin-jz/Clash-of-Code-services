@@ -10,4 +10,3 @@ urlpatterns = [
     path("challenges/leaderboard/", LeaderboardView.as_view(), name="leaderboard"),
     path("", include(router.urls)),
 ]
-

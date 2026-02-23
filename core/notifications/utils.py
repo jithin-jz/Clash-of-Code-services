@@ -23,6 +23,7 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
 
+
 def notify_via_ws(user_id, data):
     """
     Publishes notification data to Redis for WebSocket broadcasting.
@@ -34,21 +35,17 @@ def notify_via_ws(user_id, data):
     except Exception as e:
         logger.error(f"Failed to publish notification to Redis: {e}")
 
+
 def send_fcm_push(user, title, body, data=None):
     """
     Sends a push notification to all devices registered for a user.
     """
     # Also trigger WebSocket notification for immediate UI update
-    ws_data = {
-        "type": "notification",
-        "title": title,
-        "body": body,
-        "data": data or {}
-    }
+    ws_data = {"type": "notification", "title": title, "body": body, "data": data or {}}
     notify_via_ws(user.id, ws_data)
 
-    tokens = list(FCMToken.objects.filter(user=user).values_list('token', flat=True))
-    
+    tokens = list(FCMToken.objects.filter(user=user).values_list("token", flat=True))
+
     if not tokens:
         logger.info(f"No FCM tokens found for user {user.username}")
         return
@@ -60,8 +57,10 @@ def send_fcm_push(user, title, body, data=None):
             tokens=tokens,
         )
         response = messaging.send_each_for_multicast(message)
-        logger.info(f"Successfully sent FCM push to {user.username}: {response.success_count} success, {response.failure_count} failure")
-        
+        logger.info(
+            f"Successfully sent FCM push to {user.username}: {response.success_count} success, {response.failure_count} failure"
+        )
+
         # Optional: Clean up failed tokens
         if response.failure_count > 0:
             for idx, resp in enumerate(response.responses):
@@ -70,7 +69,6 @@ def send_fcm_push(user, title, body, data=None):
                     failed_token = tokens[idx]
                     FCMToken.objects.filter(token=failed_token).delete()
                     logger.info(f"Deleted invalid FCM token for {user.username}")
-                    
+
     except Exception as e:
         logger.error(f"Error sending FCM push to {user.username}: {e}")
-

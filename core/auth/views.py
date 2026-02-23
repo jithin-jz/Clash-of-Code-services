@@ -1,9 +1,9 @@
 from urllib.parse import urlencode
-from drf_spectacular.utils import extend_schema, OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
-from rest_framework import status
+from rest_framework import status, serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
@@ -67,20 +67,21 @@ def _auth_success_response(request, user, result):
 
 
 # --- OAuth Views ---
-# These views handle the HTTP layer of OAuth: redirects and callbacks.
-# All business logic is delegated to AuthService.
 
 
 class GitHubAuthURLView(APIView):
     """
     Step 1 of GitHub OAuth: Get the redirect URL.
-    Returns: { "url": "https://github.com/login/oauth/authorize?..." }
     """
 
     permission_classes = [AllowAny]
     throttle_classes = []
     serializer_class = OAuthURLSerializer
 
+    @extend_schema(
+        responses={200: OAuthURLSerializer},
+        description="Get the GitHub OAuth authorization URL to initiate the login process.",
+    )
     def get(self, request):
         state = request.query_params.get("state")
         params = {
@@ -98,14 +99,27 @@ class GitHubAuthURLView(APIView):
 class GitHubCallbackView(APIView):
     """
     Step 2 of GitHub OAuth: Handle the callback code.
-    Accepts: { "code": "..." }
-    Returns: { "access_token": "...", "user": {...} }
     """
 
     permission_classes = [AllowAny]
     throttle_classes = [AuthRateThrottle]
     serializer_class = OAuthCodeSerializer
 
+    @extend_schema(
+        request=OAuthCodeSerializer,
+        responses={
+            200: inline_serializer(
+                name="AuthResponse",
+                fields={
+                    "access_token": serializers.CharField(),
+                    "refresh_token": serializers.CharField(),
+                    "user": UserSerializer(),
+                },
+            ),
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Exchange GitHub authorization code for JWT tokens and user profile.",
+    )
     def post(self, request):
         code = request.data.get("code")
         if not code:
@@ -131,6 +145,10 @@ class GoogleAuthURLView(APIView):
     throttle_classes = []
     serializer_class = OAuthURLSerializer
 
+    @extend_schema(
+        responses={200: OAuthURLSerializer},
+        description="Get the Google OAuth authorization URL to initiate the login process.",
+    )
     def get(self, request):
         state = request.query_params.get("state")
         params = {
@@ -155,6 +173,21 @@ class GoogleCallbackView(APIView):
     throttle_classes = [AuthRateThrottle]
     serializer_class = OAuthCodeSerializer
 
+    @extend_schema(
+        request=OAuthCodeSerializer,
+        responses={
+            200: inline_serializer(
+                name="GoogleAuthResponse",
+                fields={
+                    "access_token": serializers.CharField(),
+                    "refresh_token": serializers.CharField(),
+                    "user": UserSerializer(),
+                },
+            ),
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Exchange Google authorization code for JWT tokens and user profile.",
+    )
     def post(self, request):
         code = request.data.get("code")
         if not code:
@@ -180,6 +213,21 @@ class RefreshTokenView(APIView):
     permission_classes = [AllowAny]
     serializer_class = RefreshTokenSerializer
 
+    @extend_schema(
+        request=RefreshTokenSerializer,
+        responses={
+            200: inline_serializer(
+                name="RefreshResponse",
+                fields={
+                    "access_token": serializers.CharField(),
+                    "user": UserSerializer(),
+                },
+            ),
+            401: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+        },
+        description="Refresh the access token using a valid refresh token (from body or cookie).",
+    )
     def post(self, request):
         token = request.data.get("refresh_token") or request.COOKIES.get(
             settings.JWT_REFRESH_COOKIE_NAME
@@ -236,11 +284,9 @@ class LogoutView(APIView):
     @extend_schema(
         request=None,
         responses={200: OpenApiTypes.OBJECT},
-        description="Logout the user. Client should discard tokens.",
+        description="Logout the user and clear authentication cookies.",
     )
     def post(self, request):
-        # In a stateless JWT system, logout is handled client-side
-        # We clear auth cookies as well.
         response = Response(
             {"message": "Successfully logged out"}, status=status.HTTP_200_OK
         )
@@ -257,7 +303,7 @@ class DeleteAccountView(APIView):
     @extend_schema(
         request=None,
         responses={200: OpenApiTypes.OBJECT},
-        description="Delete the user account permanently.",
+        description="Permanently delete the authenticated user account.",
     )
     def delete(self, request):
         user = request.user
@@ -277,6 +323,11 @@ class AdminLoginView(APIView):
     throttle_classes = [AuthRateThrottle]
     serializer_class = AdminLoginSerializer
 
+    @extend_schema(
+        request=AdminLoginSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+        description="Authenticate an administrator using username and password.",
+    )
     def post(self, request):
         serializer = AdminLoginSerializer(
             data=request.data, context={"request": request}
@@ -297,7 +348,6 @@ class AdminLoginView(APIView):
 class OTPRequestView(APIView):
     """
     Step 1 of Email OTP Login: Request a One-Time Password.
-    Accepts: { "email": "user@example.com" }
     """
 
     permission_classes = [AllowAny]
@@ -305,6 +355,11 @@ class OTPRequestView(APIView):
     throttle_scope = "otp"
     serializer_class = OTPRequestSerializer
 
+    @extend_schema(
+        request=OTPRequestSerializer,
+        responses={200: OpenApiTypes.OBJECT, 429: OpenApiTypes.OBJECT},
+        description="Request a One-Time Password (OTP) to be sent to the provided email address.",
+    )
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -315,7 +370,9 @@ class OTPRequestView(APIView):
             AuthService.request_otp(email)
         except ValidationError as exc:
             message = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
-            return Response({"error": message}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(
+                {"error": message}, status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
 
         return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
 
@@ -323,14 +380,17 @@ class OTPRequestView(APIView):
 class OTPVerifyView(APIView):
     """
     Step 2 of Email OTP Login: Verify the One-Time Password.
-    Accepts: { "email": "user@example.com", "otp": "123456" }
-    Returns: { "access_token": "...", "user": {...} }
     """
 
     permission_classes = [AllowAny]
     throttle_classes = [SensitiveOperationThrottle]
     serializer_class = OTPVerifySerializer
 
+    @extend_schema(
+        request=OTPVerifySerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+        description="Verify the OTP sent to email and receive JWT tokens.",
+    )
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data)
         if not serializer.is_valid():

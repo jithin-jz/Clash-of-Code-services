@@ -1,11 +1,13 @@
 from rest_framework import serializers
 from .models import AdminAuditLog
 
+
 class AdminStatsSerializer(serializers.Serializer):
     total_users = serializers.IntegerField()
     active_sessions = serializers.IntegerField()
     oauth_logins = serializers.IntegerField()
     total_gems = serializers.IntegerField()
+
 
 class AdminAuditLogSerializer(serializers.ModelSerializer):
     admin = serializers.SerializerMethodField()
@@ -27,7 +29,10 @@ class AdminAuditLogSerializer(serializers.ModelSerializer):
         return obj.admin_username or (obj.admin.username if obj.admin else "System")
 
     def get_target(self, obj):
-        return obj.target_username or (obj.target_user.username if obj.target_user else "System")
+        return obj.target_username or (
+            obj.target_user.username if obj.target_user else "System"
+        )
+
 
 class ChallengeAnalyticsSerializer(serializers.Serializer):
     id = serializers.IntegerField()
@@ -37,6 +42,7 @@ class ChallengeAnalyticsSerializer(serializers.Serializer):
     avg_stars = serializers.FloatField()
     is_personalized = serializers.BooleanField()
 
+
 class StoreItemSalesSerializer(serializers.Serializer):
     name = serializers.CharField()
     category = serializers.CharField()
@@ -44,9 +50,11 @@ class StoreItemSalesSerializer(serializers.Serializer):
     sales = serializers.IntegerField()
     revenue = serializers.IntegerField()
 
+
 class StoreAnalyticsSerializer(serializers.Serializer):
     items = StoreItemSalesSerializer(many=True)
     total_xp_spent = serializers.IntegerField()
+
 
 class SystemIntegritySerializer(serializers.Serializer):
     users = serializers.IntegerField()
@@ -54,4 +62,3 @@ class SystemIntegritySerializer(serializers.Serializer):
     store_items = serializers.IntegerField()
     notifications = serializers.IntegerField()
     audit_logs = serializers.IntegerField()
-

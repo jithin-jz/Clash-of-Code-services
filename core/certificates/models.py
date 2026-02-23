@@ -9,7 +9,9 @@ class UserCertificate(models.Model):
     Certificate issued when user completes the full global challenge track.
     """
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="certificate")
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="certificate"
+    )
     certificate_id = models.UUIDField(
         default=uuid.uuid4, unique=True, editable=False, db_index=True
     )

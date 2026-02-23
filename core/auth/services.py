@@ -260,7 +260,11 @@ class AuthService:
         else:
             send_otp_email(email, otp_code)
 
-        cache.set(request_key, request_count + 1, timeout=AuthService.OTP_REQUEST_WINDOW_SECONDS)
+        cache.set(
+            request_key,
+            request_count + 1,
+            timeout=AuthService.OTP_REQUEST_WINDOW_SECONDS,
+        )
 
         return True
 
@@ -288,7 +292,9 @@ class AuthService:
         except EmailOTP.DoesNotExist:
             logger.warning(f"OTP not found or expired for {email}")
             attempts = cache.get(attempts_key, 0) + 1
-            cache.set(attempts_key, attempts, timeout=AuthService.OTP_VERIFY_WINDOW_SECONDS)
+            cache.set(
+                attempts_key, attempts, timeout=AuthService.OTP_VERIFY_WINDOW_SECONDS
+            )
             if attempts >= AuthService.OTP_VERIFY_MAX_ATTEMPTS:
                 cache.set(lock_key, 1, timeout=AuthService.OTP_VERIFY_LOCK_SECONDS)
             return None, {"error": "Invalid or expired OTP."}

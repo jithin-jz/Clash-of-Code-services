@@ -10,22 +10,26 @@ from challenges.levels import LEVELS
 
 
 class Command(BaseCommand):
-    help = 'Load levels from levels.py into the database'
+    help = "Load levels from levels.py into the database"
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--clear',
-            action='store_true',
-            help='Clear existing global challenges before loading',
+            "--clear",
+            action="store_true",
+            help="Clear existing global challenges before loading",
         )
 
     def handle(self, *args, **options):
         target_orders = {level_data["order"] for level_data in LEVELS}
 
-        if options['clear']:
-            self.stdout.write(self.style.WARNING('Clearing existing global challenges...'))
+        if options["clear"]:
+            self.stdout.write(
+                self.style.WARNING("Clearing existing global challenges...")
+            )
             deleted = Challenge.objects.filter(created_for_user__isnull=True).delete()
-            self.stdout.write(self.style.SUCCESS(f'  ✓ Deleted {deleted[0]} challenges'))
+            self.stdout.write(
+                self.style.SUCCESS(f"  ✓ Deleted {deleted[0]} challenges")
+            )
         else:
             stale_qs = Challenge.objects.filter(created_for_user__isnull=True).exclude(
                 order__in=target_orders
@@ -39,8 +43,8 @@ class Command(BaseCommand):
                     )
                 )
 
-        self.stdout.write(self.style.HTTP_INFO(f'Loading {len(LEVELS)} levels...'))
-        
+        self.stdout.write(self.style.HTTP_INFO(f"Loading {len(LEVELS)} levels..."))
+
         created_count = 0
         updated_count = 0
 
@@ -89,10 +93,16 @@ class Command(BaseCommand):
                         self.style.WARNING(f"  ↻ Updated: {challenge.title}")
                     )
 
-        self.stdout.write('')
-        self.stdout.write(self.style.SUCCESS('=' * 50))
-        self.stdout.write(self.style.SUCCESS('✓ Levels Loading Complete!'))
-        self.stdout.write(self.style.SUCCESS(f'  - Created: {created_count} challenges'))
-        self.stdout.write(self.style.SUCCESS(f'  - Updated: {updated_count} challenges'))
-        self.stdout.write(self.style.SUCCESS(f'  - Total: {created_count + updated_count} challenges'))
-        self.stdout.write(self.style.SUCCESS('=' * 50))
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("=" * 50))
+        self.stdout.write(self.style.SUCCESS("✓ Levels Loading Complete!"))
+        self.stdout.write(
+            self.style.SUCCESS(f"  - Created: {created_count} challenges")
+        )
+        self.stdout.write(
+            self.style.SUCCESS(f"  - Updated: {updated_count} challenges")
+        )
+        self.stdout.write(
+            self.style.SUCCESS(f"  - Total: {created_count + updated_count} challenges")
+        )
+        self.stdout.write(self.style.SUCCESS("=" * 50))

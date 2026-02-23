@@ -1,32 +1,32 @@
 import uuid
+from datetime import datetime, time, timedelta
 
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiTypes
+from django.db import models
+from django.db.models import Avg, Count, Sum
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
-from datetime import datetime, time, timedelta
-from django.db import models
-from django.db.models import Sum, Avg, Count
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
+from rest_framework import serializers, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from challenges.models import Challenge, UserProgress
+from notifications.models import Notification
+from store.models import StoreItem
 from users.models import UserProfile
 from users.serializers import UserSerializer
+
 from .models import AdminAuditLog
 from .permissions import IsAdminUser, can_manage_user
 from .serializers import (
-    AdminStatsSerializer,
     AdminAuditLogSerializer,
+    AdminStatsSerializer,
     ChallengeAnalyticsSerializer,
     StoreAnalyticsSerializer,
     SystemIntegritySerializer,
 )
-from challenges.models import Challenge, UserProgress
-from store.models import StoreItem
-from notifications.models import Notification
-from auth.throttles import SensitiveOperationThrottle
 
 
 def _request_ip(request):
@@ -107,21 +107,15 @@ class AdminStatsView(APIView):
             200: AdminStatsSerializer,
             403: OpenApiTypes.OBJECT,
         },
-        description="Get administration statistics.",
+        description="Get administration statistics including total users, active sessions, and economy totals.",
     )
     def get(self, request):
         total_users = User.objects.count()
-
-        # Active sessions in last 24 hours
         yesterday = timezone.now() - timedelta(days=1)
         active_sessions = User.objects.filter(last_login__gte=yesterday).count()
-
-        # OAuth logins (Providers other than email/local)
         oauth_logins = UserProfile.objects.exclude(
             provider__in=["email", "local"]
         ).count()
-
-        # Total Gems (XP)
         total_xp = UserProfile.objects.aggregate(total_xp=Sum("xp"))["total_xp"] or 0
 
         data = {
@@ -141,19 +135,32 @@ class UserListView(APIView):
     serializer_class = UserSerializer
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter("search", str, OpenApiParameter.QUERY),
+            OpenApiParameter("role", str, OpenApiParameter.QUERY, enum=["user", "staff", "superuser"]),
+            OpenApiParameter("status", str, OpenApiParameter.QUERY, enum=["active", "blocked"]),
+            OpenApiParameter("page", int, OpenApiParameter.QUERY, default=1),
+            OpenApiParameter("page_size", int, OpenApiParameter.QUERY, default=25),
+        ],
         responses={
-            200: UserSerializer(many=True),
+            200: inline_serializer(
+                name="AdminUserListResponse",
+                fields={
+                    "count": serializers.IntegerField(),
+                    "page": serializers.IntegerField(),
+                    "page_size": serializers.IntegerField(),
+                    "total_pages": serializers.IntegerField(),
+                    "results": UserSerializer(many=True),
+                },
+            ),
             403: OpenApiTypes.OBJECT,
         },
-        description="List all users (Admin only).",
+        description="List all users with filtering and pagination. Staff can see all non-staff/superuser users; Superusers can see everyone.",
     )
     def get(self, request):
-        users = (
-            User.objects.select_related("profile")
-            .annotate(
-                followers_total=Count("followers", distinct=True),
-                following_total=Count("following", distinct=True),
-            )
+        users = User.objects.select_related("profile").annotate(
+            followers_total=Count("followers", distinct=True),
+            following_total=Count("following", distinct=True),
         )
         if not request.user.is_superuser:
             users = users.filter(is_staff=False, is_superuser=False)
@@ -163,10 +170,7 @@ class UserListView(APIView):
         status_filter = (request.query_params.get("status") or "").strip().lower()
         page = _parse_int(request.query_params.get("page"), 1, min_value=1)
         page_size = _parse_int(
-            request.query_params.get("page_size"),
-            25,
-            min_value=1,
-            max_value=100,
+            request.query_params.get("page_size"), 25, min_value=1, max_value=100
         )
 
         if search:
@@ -213,12 +217,14 @@ class UserBlockToggleView(APIView):
     """View to toggle user active status."""
 
     permission_classes = [IsAdminUser]
-    throttle_classes = [SensitiveOperationThrottle]
 
     @extend_schema(
-        request=None,
-        responses={200: OpenApiTypes.OBJECT},
-        description="Toggle user active status (block/unblock).",
+        request=inline_serializer(
+            name="UserBlockRequest",
+            fields={"reason": serializers.CharField(required=False)},
+        ),
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        description="Toggle a user's active status. Blocking a user prevents them from logging in.",
     )
     def post(self, request, username):
         try:
@@ -233,13 +239,12 @@ class UserBlockToggleView(APIView):
             return Response({"error": message}, status=status.HTTP_403_FORBIDDEN)
 
         reason = (request.data.get("reason") or "").strip()
-
-        # Toggle status directly on user model
         new_is_active = not user.is_active
 
-        # Do not allow disabling the final active superuser account.
         if user.is_superuser and not new_is_active:
-            active_superusers = User.objects.filter(is_superuser=True, is_active=True).count()
+            active_superusers = User.objects.filter(
+                is_superuser=True, is_active=True
+            ).count()
             if active_superusers <= 1:
                 return Response(
                     {"error": "Cannot block the last active superuser account."},
@@ -275,12 +280,11 @@ class UserDeleteView(APIView):
     """View to delete a user account."""
 
     permission_classes = [IsAdminUser]
-    throttle_classes = [SensitiveOperationThrottle]
 
     @extend_schema(
-        request=None,
-        responses={200: OpenApiTypes.OBJECT},
-        description="Delete a user account (Admin only).",
+        parameters=[OpenApiParameter("reason", str, OpenApiParameter.QUERY)],
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        description="Permanently delete a user account. This action cannot be undone.",
     )
     def delete(self, request, username):
         try:
@@ -314,7 +318,6 @@ class UserDeleteView(APIView):
         )
 
         user.delete()
-
         return Response(
             {"message": f"User {username} deleted successfully"},
             status=status.HTTP_200_OK,
@@ -323,27 +326,25 @@ class UserDeleteView(APIView):
 
 class ChallengeAnalyticsView(APIView):
     """View to get detailed challenge performance analytics."""
+
     permission_classes = [IsAdminUser]
 
     @extend_schema(
         responses={200: ChallengeAnalyticsSerializer(many=True)},
-        description="Get detailed challenge performance analytics.",
+        description="Get detailed challenge performance analytics including completion rates and average stars.",
     )
     def get(self, request):
         challenges = Challenge.objects.all()
-        progress_summary = (
-            UserProgress.objects.values("challenge_id")
-            .annotate(
-                total_attempts=Count("id"),
-                completions=Count(
-                    "id",
-                    filter=models.Q(status=UserProgress.Status.COMPLETED),
-                ),
-                avg_stars=Avg(
-                    "stars",
-                    filter=models.Q(status=UserProgress.Status.COMPLETED),
-                ),
-            )
+        progress_summary = UserProgress.objects.values("challenge_id").annotate(
+            total_attempts=Count("id"),
+            completions=Count(
+                "id",
+                filter=models.Q(status=UserProgress.Status.COMPLETED),
+            ),
+            avg_stars=Avg(
+                "stars",
+                filter=models.Q(status=UserProgress.Status.COMPLETED),
+            ),
         )
         summary_map = {row["challenge_id"]: row for row in progress_summary}
         analytics_data = []
@@ -354,14 +355,18 @@ class ChallengeAnalyticsView(APIView):
             completions = summary.get("completions", 0)
             avg_stars = summary.get("avg_stars") or 0
 
-            analytics_data.append({
-                "id": challenge.id,
-                "title": challenge.title,
-                "completions": completions,
-                "completion_rate": (completions / total_attempts * 100) if total_attempts > 0 else 0,
-                "avg_stars": avg_stars,
-                "is_personalized": challenge.created_for_user is not None
-            })
+            analytics_data.append(
+                {
+                    "id": challenge.id,
+                    "title": challenge.title,
+                    "completions": completions,
+                    "completion_rate": (
+                        (completions / total_attempts * 100) if total_attempts > 0 else 0
+                    ),
+                    "avg_stars": avg_stars,
+                    "is_personalized": challenge.created_for_user is not None,
+                }
+            )
 
         serializer = ChallengeAnalyticsSerializer(analytics_data, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -369,48 +374,65 @@ class ChallengeAnalyticsView(APIView):
 
 class StoreAnalyticsView(APIView):
     """View to get store economy and item popularity."""
+
     permission_classes = [IsAdminUser]
 
     @extend_schema(
         responses={200: StoreAnalyticsSerializer},
-        description="Get store economy and item popularity analytics.",
+        description="Get store economy analytics, item popularity, and total XP revenue.",
     )
     def get(self, request):
-        items = StoreItem.objects.annotate(
-            purchase_count=Count("purchases")
-        ).order_by("-purchase_count")
+        items = StoreItem.objects.annotate(purchase_count=Count("purchases")).order_by(
+            "-purchase_count"
+        )
 
-        item_stats = [{
-            "name": item.name,
-            "category": item.category,
-            "cost": item.cost,
-            "sales": item.purchase_count,
-            "revenue": item.purchase_count * item.cost
-        } for item in items]
+        item_stats = [
+            {
+                "name": item.name,
+                "category": item.category,
+                "cost": item.cost,
+                "sales": item.purchase_count,
+                "revenue": item.purchase_count * item.cost,
+            }
+            for item in items
+        ]
 
         total_revenue = sum(item["revenue"] for item in item_stats)
-
-        data = {
-            "items": item_stats,
-            "total_xp_spent": total_revenue
-        }
+        data = {"items": item_stats, "total_xp_spent": total_revenue}
         serializer = StoreAnalyticsSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class GlobalNotificationView(APIView):
     """View to send notifications to all users."""
-    permission_classes = [IsAdminUser]
-    throttle_classes = [SensitiveOperationThrottle]
 
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        request=inline_serializer(
+            name="GlobalNotificationRequest",
+            fields={
+                "message": serializers.CharField(max_length=500),
+                "include_staff": serializers.BooleanField(default=False),
+                "reason": serializers.CharField(required=False),
+            },
+        ),
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+        description="Broadcast a notification to all active users.",
+    )
     def post(self, request):
         verb = request.data.get("message")
         if not verb:
-            return Response({"error": "Message is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Validate message length
+            return Response(
+                {"error": "Message is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         if len(verb) > 500:
-            return Response({"error": "Message too long (max 500 characters)"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Message too long (max 500 characters)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         include_staff = _parse_bool(request.data.get("include_staff", False))
         users_qs = User.objects.filter(is_active=True).exclude(id=request.user.id)
         if not include_staff:
@@ -424,7 +446,6 @@ class GlobalNotificationView(APIView):
         Notification.objects.bulk_create(notifications, batch_size=1000)
 
         reason = (request.data.get("reason") or "").strip()
-
         log_admin_action(
             admin=request.user,
             action="SEND_GLOBAL_NOTIFICATION",
@@ -437,16 +458,42 @@ class GlobalNotificationView(APIView):
             },
         )
 
-        return Response({"message": f"Broadcast sent to {len(recipient_ids)} users"}, status=status.HTTP_200_OK)
+        return Response(
+            {"message": f"Broadcast sent to {len(recipient_ids)} users"},
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminAuditLogView(APIView):
     """View to retrieve administrative action logs."""
+
     permission_classes = [IsAdminUser]
 
     @extend_schema(
-        responses={200: AdminAuditLogSerializer(many=True)},
-        description="Retrieve administrative action logs.",
+        parameters=[
+            OpenApiParameter("action", str, OpenApiParameter.QUERY),
+            OpenApiParameter("admin", str, OpenApiParameter.QUERY),
+            OpenApiParameter("target", str, OpenApiParameter.QUERY),
+            OpenApiParameter("search", str, OpenApiParameter.QUERY),
+            OpenApiParameter("ordering", str, OpenApiParameter.QUERY, default="-timestamp"),
+            OpenApiParameter("date_from", str, OpenApiParameter.QUERY),
+            OpenApiParameter("date_to", str, OpenApiParameter.QUERY),
+            OpenApiParameter("page", int, OpenApiParameter.QUERY, default=1),
+            OpenApiParameter("page_size", int, OpenApiParameter.QUERY, default=50),
+        ],
+        responses={
+            200: inline_serializer(
+                name="AdminAuditLogResponse",
+                fields={
+                    "count": serializers.IntegerField(),
+                    "page": serializers.IntegerField(),
+                    "page_size": serializers.IntegerField(),
+                    "total_pages": serializers.IntegerField(),
+                    "results": AdminAuditLogSerializer(many=True),
+                },
+            )
+        },
+        description="Retrieve administrative action logs with advanced filtering and search.",
     )
     def get(self, request):
         logs = AdminAuditLog.objects.select_related("admin", "target_user").all()
@@ -462,13 +509,13 @@ class AdminAuditLogView(APIView):
             request.query_params.get("date_to"), end_of_day=True
         )
 
-        # Backward-compatible mapping with limit/offset if callers still use it.
         limit = _parse_int(request.query_params.get("limit"), 50, 1, 500)
         offset = _parse_int(request.query_params.get("offset"), 0, 0, None)
         page_size = _parse_int(
             request.query_params.get("page_size"), limit, min_value=1, max_value=500
         )
         page = _parse_int(request.query_params.get("page"), 1, min_value=1)
+
         if "offset" in request.query_params or "limit" in request.query_params:
             page_size = limit
             page = (offset // max(limit, 1)) + 1
@@ -521,20 +568,22 @@ class AdminAuditLogView(APIView):
         )
 
 
-
 class SystemIntegrityView(APIView):
     """View to check core system health and counts."""
+
     permission_classes = [IsAdminUser]
 
+    @extend_schema(
+        responses={200: SystemIntegritySerializer},
+        description="Get current collection counts for key system models.",
+    )
     def get(self, request):
         data = {
             "users": User.objects.count(),
             "challenges": Challenge.objects.count(),
             "store_items": StoreItem.objects.count(),
             "notifications": Notification.objects.count(),
-            "audit_logs": AdminAuditLog.objects.count()
+            "audit_logs": AdminAuditLog.objects.count(),
         }
         serializer = SystemIntegritySerializer(data)
-        return Response(serializer.data)
-
-
+        return Response(serializer.data, status=status.HTTP_200_OK)

@@ -18,10 +18,13 @@ def send_welcome_email_task(user_id):
         user = User.objects.get(pk=user_id)
         send_welcome_email(user)
         logger.info(f"Welcome email task completed for user {user_id}")
+        return {"status": "sent", "user_id": user_id}
     except User.DoesNotExist:
         logger.warning(f"User {user_id} not found for welcome email task")
+        return {"status": "user_not_found", "user_id": user_id}
     except Exception as e:
         logger.exception(f"Welcome email task failed: {str(e)}")
+        return {"status": "error", "error": str(e)}
 
 
 @shared_task
@@ -32,5 +35,7 @@ def send_otp_email_task(email, otp):
     try:
         send_otp_email(email, otp)
         logger.info(f"OTP email task completed for {email}")
+        return {"status": "sent", "email": email}
     except Exception as e:
         logger.exception(f"OTP email task failed: {str(e)}")
+        return {"status": "error", "error": str(e)}

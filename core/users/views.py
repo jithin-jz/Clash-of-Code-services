@@ -11,7 +11,15 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiTypes,
+    inline_serializer,
+    OpenApiParameter,
+)
+from rest_framework import serializers
 from .models import UserProfile, UserFollow
+
 from .serializers import (
     UserSerializer,
     UserSummarySerializer,
@@ -81,6 +89,11 @@ class ProfileUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
 
+    @extend_schema(
+        request=UserSerializer,
+        responses={200: UserSerializer},
+        description="Update current user profile and identity details.",
+    )
     def patch(self, request):
         user = request.user
         data = request.data
@@ -106,9 +119,11 @@ class ProfileUpdateView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            username_taken = User.objects.filter(
-                username__iexact=requested_username
-            ).exclude(pk=user.pk).exists()
+            username_taken = (
+                User.objects.filter(username__iexact=requested_username)
+                .exclude(pk=user.pk)
+                .exists()
+            )
             if username_taken:
                 return Response(
                     {"error": "Username is already taken."},
@@ -170,11 +185,16 @@ class ProfileDetailView(APIView):
     permission_classes = [AllowAny]
     serializer_class = UserSerializer
 
+    @extend_schema(
+        parameters=[OpenApiParameter("username", str, OpenApiParameter.PATH)],
+        responses={200: UserSerializer, 404: OpenApiTypes.OBJECT},
+        description="Get public profile details by username.",
+    )
     def get(self, request, username):
         # Try to get from cache first
-        cache_key = f'profile:{username}'
+        cache_key = f"profile:{username}"
         data = cache.get(cache_key)
-        
+
         if not data:
             try:
                 user = User.objects.get(username=username)
@@ -188,20 +208,20 @@ class ProfileDetailView(APIView):
             # Add stats (redundant if serializer has them, but ensuring consistency)
             data["followers_count"] = user.followers.count()
             data["following_count"] = user.following.count()
-            
+
             # Cache the public data for 5 minutes
             cache.set(cache_key, data, 300)
 
         # Inject request-specific data (NEVER CACHE THIS)
         if request.user.is_authenticated:
-            # Check if relationship exists. 
+            # Check if relationship exists.
             # We use the relationship model directly to avoid fetching the user object if data came from cache
             data["is_following"] = UserFollow.objects.filter(
                 follower=request.user, following__username=username
             ).exists()
         else:
             data["is_following"] = False
-        
+
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -211,7 +231,17 @@ class FollowToggleView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = FollowToggleResponseSerializer
 
+    @extend_schema(
+        parameters=[OpenApiParameter("username", str, OpenApiParameter.PATH)],
+        responses={
+            200: FollowToggleResponseSerializer,
+            201: FollowToggleResponseSerializer,
+            404: OpenApiTypes.OBJECT,
+        },
+        description="Toggle follow/unfollow for a user.",
+    )
     def post(self, request, username):
+
         try:
             target_user = User.objects.get(username=username)
         except User.DoesNotExist:
@@ -234,9 +264,9 @@ class FollowToggleView(APIView):
             is_following = False
         else:
             is_following = True
-            
+
         # Invalidate profile cache because followers_count changed
-        cache.delete(f'profile:{username}')
+        cache.delete(f"profile:{username}")
 
         return_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(
@@ -355,7 +385,17 @@ class RedeemReferralView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = RedeemReferralSerializer
 
+    @extend_schema(
+        request=RedeemReferralSerializer,
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description="Redeem a referral code to earn XP.",
+    )
     def post(self, request):
+
         code = (request.data.get("code") or "").strip().upper()
 
         if not code:
@@ -430,36 +470,54 @@ class SuggestedUsersView(APIView):
 
     def get(self, request):
         # Get users the current user is NOT following (excluding self)
-        following_ids = request.user.following.values_list('following_id', flat=True)
-        
-        suggested = User.objects.exclude(
-            id__in=list(following_ids) + [request.user.id]
-        ).exclude(
-            is_superuser=True
-        ).exclude(
-            is_staff=True
-        ).select_related('profile').order_by('?')[:5]
+        following_ids = request.user.following.values_list("following_id", flat=True)
+
+        suggested = (
+            User.objects.exclude(id__in=list(following_ids) + [request.user.id])
+            .exclude(is_superuser=True)
+            .exclude(is_staff=True)
+            .select_related("profile")
+            .order_by("?")[:5]
+        )
 
         data = []
         for user in suggested:
             profile = getattr(user, "profile", None)
-            data.append({
-                "username": user.username,
-                "first_name": user.first_name,
-                "avatar_url": (
-                    request.build_absolute_uri(profile.avatar.url)
-                    if profile and profile.avatar
-                    else None
-                ),
-            })
+            data.append(
+                {
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "avatar_url": (
+                        request.build_absolute_uri(profile.avatar.url)
+                        if profile and profile.avatar
+                        else None
+                    ),
+                }
+            )
 
         return Response(data, status=status.HTTP_200_OK)
+
 
 class ContributionHistoryView(APIView):
     """View to get contribution history for the contribution graph."""
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        parameters=[OpenApiParameter("username", str, OpenApiParameter.PATH)],
+        responses={
+            200: inline_serializer(
+                name="ContributionHistoryResponse",
+                fields={
+                    "date": serializers.DateField(),
+                    "count": serializers.IntegerField(),
+                },
+                many=True,
+            ),
+            404: OpenApiTypes.OBJECT,
+        },
+        description="Retrieve a map of daily contributions (completed challenges) for the last 365 days.",
+    )
     def get(self, request, username):
         try:
             user = User.objects.get(username=username)

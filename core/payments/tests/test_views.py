@@ -5,10 +5,13 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from payments.models import Payment
 
+
 class PaymentViewTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="buyer", password="password")
-        self.other_user = User.objects.create_user(username="other", password="password")
+        self.other_user = User.objects.create_user(
+            username="other", password="password"
+        )
         self.verify_url = reverse("verify-payment")
         self.create_order_url = reverse("create-order")
 
@@ -18,10 +21,12 @@ class PaymentViewTests(APITestCase):
         mock_client = MagicMock()
         mock_client.order.create.return_value = {"id": "order_mock_123"}
         mock_get_client.return_value = mock_client
-        
+
         self.client.force_authenticate(user=self.user)
-        response = self.client.post(self.create_order_url, {"amount": 99}, format="json")
-        
+        response = self.client.post(
+            self.create_order_url, {"amount": 99}, format="json"
+        )
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["order_id"], "order_mock_123")
         self.assertEqual(Payment.objects.count(), 1)
@@ -30,7 +35,9 @@ class PaymentViewTests(APITestCase):
     @patch("payments.views._get_razorpay_client")
     def test_create_order_invalid_amount(self, mock_get_client):
         self.client.force_authenticate(user=self.user)
-        response = self.client.post(self.create_order_url, {"amount": 50}, format="json") # Not in map
+        response = self.client.post(
+            self.create_order_url, {"amount": 50}, format="json"
+        )  # Not in map
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch("payments.views._get_razorpay_client")
@@ -40,7 +47,7 @@ class PaymentViewTests(APITestCase):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_add_xp.return_value = 200
-        
+
         payment = Payment.objects.create(
             user=self.user,
             razorpay_order_id="order_test_verified",
@@ -48,7 +55,7 @@ class PaymentViewTests(APITestCase):
             xp_amount=100,
             status="pending",
         )
-        
+
         self.client.force_authenticate(user=self.user)
         response = self.client.post(
             self.verify_url,
@@ -59,7 +66,7 @@ class PaymentViewTests(APITestCase):
             },
             format="json",
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payment.refresh_from_db()
         self.assertEqual(payment.status, "success")
@@ -67,10 +74,12 @@ class PaymentViewTests(APITestCase):
 
     @patch("payments.views._get_razorpay_client")
     @patch("payments.views.XPService.add_xp")
-    def test_rejects_verification_for_other_users_order(self, mock_add_xp, mock_get_client):
+    def test_rejects_verification_for_other_users_order(
+        self, mock_add_xp, mock_get_client
+    ):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        
+
         payment = Payment.objects.create(
             user=self.other_user,
             razorpay_order_id="order_test_1",
@@ -97,10 +106,12 @@ class PaymentViewTests(APITestCase):
 
     @patch("payments.views._get_razorpay_client")
     @patch("payments.views.XPService.add_xp", return_value=200)
-    def test_idempotent_success_does_not_recredit_xp(self, mock_add_xp, mock_get_client):
+    def test_idempotent_success_does_not_recredit_xp(
+        self, mock_add_xp, mock_get_client
+    ):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        
+
         payment = Payment.objects.create(
             user=self.user,
             razorpay_order_id="order_test_2",

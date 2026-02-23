@@ -1,8 +1,9 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, serializers
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 from .models import DailyCheckIn
 from .serializers import DailyCheckInSerializer
 
@@ -14,6 +15,23 @@ class CheckInView(APIView):
     # XP rewards for each cycle day (Day 1 -> 5 XP ... Day 7 -> 35 XP)
     DAILY_REWARDS = {1: 5, 2: 10, 3: 15, 4: 20, 5: 25, 6: 30, 7: 35}
 
+    @extend_schema(
+        request=None,
+        responses={
+            201: inline_serializer(
+                name="CheckInSuccess",
+                fields={
+                    "message": serializers.CharField(),
+                    "check_in": DailyCheckInSerializer(),
+                    "xp_earned": serializers.IntegerField(),
+                    "total_xp": serializers.IntegerField(),
+                    "cycle_day": serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiTypes.OBJECT,
+        },
+        description="Process a daily check-in and award XP.",
+    )
     def post(self, request):
         """Process a daily check-in."""
         user = request.user
@@ -66,6 +84,20 @@ class CheckInView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="CheckInStatus",
+                fields={
+                    "checked_in_today": serializers.BooleanField(),
+                    "cycle_day": serializers.IntegerField(),
+                    "today_checkin": DailyCheckInSerializer(allow_null=True),
+                    "recent_checkins": DailyCheckInSerializer(many=True),
+                },
+            )
+        },
+        description="Get user's check-in status and history for the current cycle.",
+    )
     def get(self, request):
         """Get user's check-in status and history."""
         user = request.user
@@ -89,12 +121,7 @@ class CheckInView(APIView):
         return Response(
             {
                 "checked_in_today": today_checkin is not None,
-                "current_streak": (
-                    cycle_day if today_checkin else (cycle_day - 1)
-                ),  # Frontend expects 'current_streak' to mean 'days completed' mostly? Or 'current active day'?
-                # Actually, effectively frontend uses this to show progress.
-                # If checked in today, show cycle_day. If not, show cycle_day - 1 (completed) or just cycle_day (next target).
-                # Let's send raw cycle info for better frontend logic.
+                "current_streak": (cycle_day if today_checkin else (cycle_day - 1)),
                 "cycle_day": cycle_day,
                 "cycle_start_date": cycle_start_date,
                 "today_checkin": (

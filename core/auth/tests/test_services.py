@@ -5,18 +5,22 @@ from auth.services import AuthService
 from auth.models import EmailOTP
 from django.core.cache import cache
 
+
 class AuthServiceTest(TestCase):
     def setUp(self):
         self.email = "test@example.com"
         self.otp_code = "123456"
         cache.clear()
 
-    @patch('auth.services.generate_tokens')
-    @patch('auth.services.send_welcome_email_task.delay')
+    @patch("auth.services.generate_tokens")
+    @patch("auth.services.send_welcome_email_task.delay")
     def test_verify_otp_success_new_user(self, mock_welcome_task, mock_generate_tokens):
         # 1. Setup: Create a valid OTP record in the DB
         EmailOTP.objects.create(email=self.email, otp=self.otp_code)
-        mock_generate_tokens.return_value = {"access": "fake-access", "refresh": "fake-refresh"}
+        mock_generate_tokens.return_value = {
+            "access": "fake-access",
+            "refresh": "fake-refresh",
+        }
 
         # 2. Act: Call the service method
         user, tokens = AuthService.verify_otp(self.email, self.otp_code)
@@ -25,12 +29,12 @@ class AuthServiceTest(TestCase):
         self.assertIsNotNone(user)
         self.assertEqual(user.email, self.email)
         self.assertEqual(tokens["access"], "fake-access")
-        mock_welcome_task.assert_called_once() # Ensure welcome email was triggered
+        mock_welcome_task.assert_called_once()  # Ensure welcome email was triggered
 
     def test_verify_otp_invalid_code(self):
         # Setup: Create a valid OTP record
         EmailOTP.objects.create(email=self.email, otp="111111")
-        
+
         # Act: Try to verify with a WRONG code
         user, error_data = AuthService.verify_otp(self.email, "999999")
 
@@ -38,7 +42,7 @@ class AuthServiceTest(TestCase):
         self.assertIsNone(user)
         self.assertEqual(error_data["error"], "Invalid or expired OTP.")
 
-    @patch('auth.services.generate_tokens')
+    @patch("auth.services.generate_tokens")
     def test_verify_otp_existing_user(self, mock_generate_tokens):
         # Setup: Pre-create the user and the OTP
         User.objects.create_user(username="existing", email=self.email)
@@ -51,5 +55,3 @@ class AuthServiceTest(TestCase):
         # Assert: Still 1 user in DB, and returns that user
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(user.email, self.email)
-
-    

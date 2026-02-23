@@ -3,6 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+
 class RedeemReferralTests(APITestCase):
     def setUp(self):
         self.referrer = User.objects.create_user(

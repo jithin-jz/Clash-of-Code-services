@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import UserProfile
 
 
@@ -39,21 +39,25 @@ class UserProfileSerializer(serializers.ModelSerializer):
         # Boolean derived from presence of a referrer
         return obj.referred_by is not None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_avatar_url(self, obj):
         if obj.avatar:
             request = self.context.get("request")
             if request:
                 return request.build_absolute_uri(obj.avatar.url)
             from django.conf import settings
+
             return f"{settings.BACKEND_URL.rstrip('/')}{obj.avatar.url}"
         return None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_banner_url(self, obj):
         if obj.banner:
             request = self.context.get("request")
             if request:
                 return request.build_absolute_uri(obj.banner.url)
             from django.conf import settings
+
             return f"{settings.BACKEND_URL.rstrip('/')}{obj.banner.url}"
         return None
 
@@ -114,15 +118,18 @@ class UserSummarySerializer(serializers.Serializer):
     is_following = serializers.SerializerMethodField()
     bio = serializers.SerializerMethodField()
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_avatar_url(self, obj):
-        if hasattr(obj, 'profile') and obj.profile.avatar:
+        if hasattr(obj, "profile") and obj.profile.avatar:
             request = self.context.get("request")
             if request:
                 return request.build_absolute_uri(obj.profile.avatar.url)
             from django.conf import settings
+
             return f"{settings.BACKEND_URL.rstrip('/')}{obj.profile.avatar.url}"
         return None
 
+    @extend_schema_field(bool)
     def get_is_following(self, obj):
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -130,8 +137,9 @@ class UserSummarySerializer(serializers.Serializer):
             return request.user.following.filter(following=obj).exists()
         return False
 
+    @extend_schema_field(str)
     def get_bio(self, obj):
-        return obj.profile.bio if hasattr(obj, 'profile') else ""
+        return obj.profile.bio if hasattr(obj, "profile") else ""
 
 
 class FollowToggleResponseSerializer(serializers.Serializer):

@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.db import transaction
-from rest_framework import views, status, permissions
+from rest_framework import views, status, permissions, serializers
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 
 from xpoint.services import XPService
 from .models import Payment
@@ -25,10 +26,31 @@ def _get_razorpay_client():
 
 
 class CreateOrderView(views.APIView):
+    """
+    API View to create a Razorpay order for purchasing XP.
+    """
+
     permission_classes = [permissions.IsAuthenticated]
     throttle_classes = [StoreRateThrottle]
     serializer_class = CreateOrderSerializer
 
+    @extend_schema(
+        request=CreateOrderSerializer,
+        responses={
+            201: inline_serializer(
+                name="OrderResponse",
+                fields={
+                    "order_id": serializers.CharField(),
+                    "amount": serializers.IntegerField(),
+                    "key": serializers.CharField(),
+                    "xp_amount": serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiTypes.OBJECT,
+            503: OpenApiTypes.OBJECT,
+        },
+        description="Create a Razorpay order to buy an XP package.",
+    )
     def post(self, request):
         serializer = CreateOrderSerializer(data=request.data)
 
@@ -108,10 +130,30 @@ class CreateOrderView(views.APIView):
 
 
 class VerifyPaymentView(views.APIView):
+    """
+    API View to verify Razorpay payment signatures and award XP.
+    """
+
     permission_classes = [permissions.IsAuthenticated]
     throttle_classes = [StoreRateThrottle]
     serializer_class = VerifyPaymentSerializer
 
+    @extend_schema(
+        request=VerifyPaymentSerializer,
+        responses={
+            200: inline_serializer(
+                name="VerifyPaymentResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "new_xp": serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description="Verify a completed Razorpay payment and credit XP to the user.",
+    )
     def post(self, request):
         serializer = VerifyPaymentSerializer(data=request.data)
 

@@ -19,4 +19,3 @@ class UserCertificateSerializer(serializers.ModelSerializer):
             "verification_url",
         ]
         read_only_fields = ["certificate_id", "issued_date"]
-

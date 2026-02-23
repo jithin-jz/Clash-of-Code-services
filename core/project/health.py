@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import connection
 from django.core.cache import cache
+from drf_spectacular.utils import extend_schema, OpenApiTypes
 
 
 class HealthCheckView(APIView):
@@ -10,15 +11,19 @@ class HealthCheckView(APIView):
     Health check endpoint for monitoring service status.
     Checks database, cache, and Redis connectivity.
     """
+
     permission_classes = []  # Public endpoint
 
+    @extend_schema(
+        responses={
+            200: OpenApiTypes.OBJECT,
+            503: OpenApiTypes.OBJECT,
+        },
+        description="Check the health of the core service (DB, Cache, Redis).",
+    )
     def get(self, request):
-        health_status = {
-            "status": "healthy",
-            "service": "core",
-            "checks": {}
-        }
-        
+        health_status = {"status": "healthy", "service": "core", "checks": {}}
+
         # Check database
         try:
             connection.ensure_connection()
@@ -26,7 +31,7 @@ class HealthCheckView(APIView):
         except Exception as e:
             health_status["status"] = "unhealthy"
             health_status["checks"]["database"] = f"error: {str(e)}"
-        
+
         # Check cache (Redis)
         try:
             cache.set("health_check", "ok", 10)
@@ -39,8 +44,12 @@ class HealthCheckView(APIView):
         except Exception as e:
             health_status["status"] = "unhealthy"
             health_status["checks"]["cache"] = f"error: {str(e)}"
-        
+
         # Determine HTTP status code
-        status_code = status.HTTP_200_OK if health_status["status"] == "healthy" else status.HTTP_503_SERVICE_UNAVAILABLE
-        
+        status_code = (
+            status.HTTP_200_OK
+            if health_status["status"] == "healthy"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+
         return Response(health_status, status=status_code)

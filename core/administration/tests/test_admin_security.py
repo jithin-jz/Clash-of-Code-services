@@ -59,7 +59,9 @@ class AdminSecurityTest(TestCase):
         self.regular_user.refresh_from_db()
         self.assertFalse(self.regular_user.is_active)
 
-        audit = AdminAuditLog.objects.filter(action="TOGGLE_USER_BLOCK").latest("timestamp")
+        audit = AdminAuditLog.objects.filter(action="TOGGLE_USER_BLOCK").latest(
+            "timestamp"
+        )
         self.assertEqual(audit.admin_username, self.staff_admin.username)
         self.assertEqual(audit.target_username, self.regular_user.username)
         self.assertEqual(audit.target_email, self.regular_user.email)
@@ -82,7 +84,9 @@ class AdminSecurityTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(User.objects.filter(username=self.regular_user.username).exists())
+        self.assertFalse(
+            User.objects.filter(username=self.regular_user.username).exists()
+        )
 
         audit = AdminAuditLog.objects.filter(action="DELETE_USER").latest("timestamp")
         self.assertEqual(audit.admin_username, self.super_admin.username)

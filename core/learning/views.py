@@ -1,4 +1,6 @@
 import logging
+import os
+import requests
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -18,25 +20,31 @@ logger = logging.getLogger(__name__)
 
 
 class ChallengeViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for interacting with coding challenges.
+    """
+
     queryset = Challenge.objects.all()
     serializer_class = ChallengeSerializer
     lookup_field = "slug"
 
     def get_queryset(self):
-        user = self.request.user
-        if not user.is_authenticated:
-            return Challenge.objects.all()
         return Challenge.objects.all()
 
     def get_permissions(self):
-        if self.action in ["internal_context", "internal_list", "create"]:
+        if self.action in ["internal_context", "internal_list"]:
             permission_classes = [AllowAny]
-        elif self.action in ["update", "partial_update", "destroy"]:
+        elif self.action in ["create", "update", "partial_update", "destroy"]:
             permission_classes = [IsAdminUser]
         else:
             permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
 
+    @extend_schema(
+        request=ChallengeSerializer,
+        responses={201: ChallengeSerializer, 403: OpenApiTypes.OBJECT},
+        description="Create a new challenge (Admin only).",
+    )
     def create(self, request, *args, **kwargs):
         if not request.user.is_staff:
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
@@ -44,13 +52,11 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
-        responses={200: ChallengeSerializer(many=True)},
-        description="Internal endpoint to list all challenges for indexing.",
+        responses={200: ChallengeSerializer(many=True), 403: OpenApiTypes.OBJECT},
+        description="Internal endpoint to list all challenges for indexing (Requires INTERNAL_API_KEY).",
     )
     @decorators.action(detail=False, methods=["get"], url_path="internal-list")
     def internal_list(self, request):
-        import os
-
         internal_key = os.getenv("INTERNAL_API_KEY")
         request_key = request.headers.get("X-Internal-API-Key")
 
@@ -59,8 +65,12 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
         challenges = Challenge.objects.all()
         serializer = ChallengeSerializer(challenges, many=True)
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        responses={200: ChallengeSerializer(many=True)},
+        description="List all available challenges with user-specific progress annotations.",
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         annotated_challenges = ChallengeService.get_annotated_challenges(
@@ -75,8 +85,12 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             challenge_data["stars"] = item.user_stars
             data.append(challenge_data)
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        responses={200: ChallengeSerializer},
+        description="Retrieve details of a specific challenge including user progress and purchase status.",
+    )
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance)
@@ -90,7 +104,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             details["started_at"].isoformat() if details["started_at"] else None
         )
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=inline_serializer(
@@ -100,7 +114,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             },
         ),
         responses={200: OpenApiTypes.OBJECT},
-        description="Submit a challenge solution.",
+        description="Submit a challenge solution and update user progress.",
     )
     @decorators.action(detail=True, methods=["post"])
     def submit(self, request, slug=None):
@@ -118,11 +132,14 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                     "status": serializers.CharField(),
                     "remaining_xp": serializers.IntegerField(),
                     "hints_purchased": serializers.IntegerField(),
+                    "cost": serializers.IntegerField(),
+                    "message": serializers.CharField(),
                 },
             ),
+            400: OpenApiTypes.OBJECT,
             402: OpenApiTypes.OBJECT,
         },
-        description="Purchase AI assistance for a challenge.",
+        description="Purchase the next level of AI assistance for this challenge using XP.",
     )
     @decorators.action(detail=True, methods=["post"])
     def purchase_ai_assist(self, request, slug=None):
@@ -181,10 +198,11 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         ),
         responses={
             200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
             402: OpenApiTypes.OBJECT,
-            403: OpenApiTypes.OBJECT,
+            503: OpenApiTypes.OBJECT,
         },
-        description="Request an AI hint via Core Gateway (Auth & Payment Check).",
+        description="Retrieve an AI-generated hint for the challenge (Requires prior purchase of the level).",
     )
     @decorators.action(detail=True, methods=["post"], url_path="ai-hint")
     def ai_hint(self, request, slug=None):
@@ -212,8 +230,6 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )
 
-        # Enforce deterministic max of 3 generated hints per challenge:
-        # one unique hint per level, cached per user/challenge/level.
         cache_key = f"ai_hint:{user.id}:{challenge.id}:level:{hint_level}"
         cached_hint = cache.get(cache_key)
         if cached_hint:
@@ -227,15 +243,12 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_200_OK,
             )
 
-        import os
-        import requests
-
         ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
         internal_key = os.getenv("INTERNAL_API_KEY")
         payload = {
             "user_code": request.data.get("user_code", ""),
             "challenge_slug": challenge.slug,
-            "hint_level": request.data.get("hint_level", 1),
+            "hint_level": hint_level,
             "user_xp": user.profile.xp,
         }
         headers = {
@@ -244,7 +257,9 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         }
 
         try:
-            resp = requests.post(f"{ai_url}/hints", json=payload, headers=headers, timeout=30)
+            resp = requests.post(
+                f"{ai_url}/hints", json=payload, headers=headers, timeout=30
+            )
             if resp.status_code == 200:
                 body = resp.json()
                 hint_text = body.get("hint")
@@ -252,7 +267,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                     cache.set(cache_key, hint_text, timeout=60 * 60 * 24 * 30)
                 body.setdefault("hint_level", hint_level)
                 body.setdefault("max_hints", 3)
-                return Response(body)
+                return Response(body, status=status.HTTP_200_OK)
             return Response(
                 {"error": "AI Service Error", "details": resp.text},
                 status=resp.status_code,
@@ -271,18 +286,12 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 "user_code": serializers.CharField(),
             },
         ),
-        responses={
-            200: OpenApiTypes.OBJECT,
-            403: OpenApiTypes.OBJECT,
-        },
-        description="Request an AI code analysis via Core Gateway.",
+        responses={200: OpenApiTypes.OBJECT, 503: OpenApiTypes.OBJECT},
+        description="Get AI-powered analysis and feedback for your code.",
     )
     @decorators.action(detail=True, methods=["post"], url_path="ai-analyze")
     def ai_analyze(self, request, slug=None):
         challenge = self.get_object()
-
-        import os
-        import requests
 
         ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
         internal_key = os.getenv("INTERNAL_API_KEY")
@@ -300,7 +309,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 f"{ai_url}/analyze", json=payload, headers=headers, timeout=60
             )
             if resp.status_code == 200:
-                return Response(resp.json())
+                return Response(resp.json(), status=status.HTTP_200_OK)
             return Response(
                 {"error": "AI Service Error", "details": resp.text},
                 status=resp.status_code,
@@ -313,24 +322,23 @@ class ChallengeViewSet(viewsets.ModelViewSet):
             )
 
     @extend_schema(
-        request=None,
         responses={
             200: inline_serializer(
                 name="ChallengeContextResponse",
                 fields={
+                    "challenge_title": serializers.CharField(),
                     "description": serializers.CharField(),
                     "initial_code": serializers.CharField(),
                     "test_code": serializers.CharField(),
                 },
             ),
             403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
         },
-        description="Internal endpoint to fetch challenge context for AI service.",
+        description="Internal endpoint to fetch full challenge context (Requires INTERNAL_API_KEY).",
     )
     @decorators.action(detail=True, methods=["get"], url_path="context")
     def internal_context(self, request, slug=None):
-        import os
-
         internal_key = os.getenv("INTERNAL_API_KEY")
         request_key = request.headers.get("X-Internal-API-Key")
 
@@ -346,7 +354,8 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                     "description": challenge.description,
                     "initial_code": challenge.initial_code,
                     "test_code": challenge.test_code,
-                }
+                },
+                status=status.HTTP_200_OK,
             )
         except Challenge.DoesNotExist:
             return Response(
@@ -361,6 +370,10 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
 
 class LeaderboardView(APIView):
+    """
+    View to retrieve the global user leaderboard.
+    """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -376,12 +389,12 @@ class LeaderboardView(APIView):
                 many=True,
             )
         },
-        description="Get global leaderboard.",
+        description="Get global leaderboard data (limited to top 100 users, cached for 30s).",
     )
     def get(self, request):
         cached_data = cache.get("leaderboard_data")
         if cached_data:
-            return Response(cached_data)
+            return Response(cached_data, status=status.HTTP_200_OK)
 
         users = (
             User.objects.annotate(
@@ -415,4 +428,4 @@ class LeaderboardView(APIView):
             )
 
         cache.set("leaderboard_data", data, timeout=30)
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)

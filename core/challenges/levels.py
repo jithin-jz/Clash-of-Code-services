@@ -48,13 +48,13 @@ LEVELS = [
     level(
         1,
         "Hello Function",
-        "Create `say_hello()` that returns the exact string `\"Hello, Python!\"`.",
+        'Create `say_hello()` that returns the exact string `"Hello, Python!"`.',
         "`say_hello()` takes no arguments.",
         "Return the greeting string exactly.",
-        "`say_hello()` -> `\"Hello, Python!\"`",
+        '`say_hello()` -> `"Hello, Python!"`',
         "- Return, do not print.\n- Keep punctuation exact.",
         "def say_hello():\n    pass\n",
-        "assert say_hello() == \"Hello, Python!\"\nassert isinstance(say_hello(), str)",
+        'assert say_hello() == "Hello, Python!"\nassert isinstance(say_hello(), str)',
         120,
     ),
     level(
@@ -87,10 +87,10 @@ LEVELS = [
         "Implement `count_chars(text)` that returns the length of a string.",
         "`text` is a string.",
         "Return the number of characters.",
-        "`count_chars(\"code\")` -> `4`",
+        '`count_chars("code")` -> `4`',
         "- Spaces count as characters.",
         "def count_chars(text):\n    pass\n",
-        "assert count_chars(\"code\") == 4\nassert count_chars(\"\") == 0\nassert count_chars(\"a b\") == 3",
+        'assert count_chars("code") == 4\nassert count_chars("") == 0\nassert count_chars("a b") == 3',
         120,
     ),
     level(
@@ -135,10 +135,10 @@ LEVELS = [
         "Create `normalize_username(name)` that trims spaces and lowercases the value.",
         "`name` is a string.",
         "Return normalized username.",
-        "`normalize_username(\"  Kira_01  \")` -> `\"kira_01\"`",
+        '`normalize_username("  Kira_01  ")` -> `"kira_01"`',
         "- Use string methods only.",
         "def normalize_username(name):\n    pass\n",
-        "assert normalize_username(\"  Kira_01  \") == \"kira_01\"\nassert normalize_username(\"USER\") == \"user\"",
+        'assert normalize_username("  Kira_01  ") == "kira_01"\nassert normalize_username("USER") == "user"',
         150,
     ),
     level(
@@ -150,7 +150,7 @@ LEVELS = [
         "`swap_pair(1, 2)` -> `(2, 1)`",
         "- Return a tuple of length 2.",
         "def swap_pair(a, b):\n    pass\n",
-        "assert swap_pair(1, 2) == (2, 1)\nassert swap_pair(\"x\", \"y\") == (\"y\", \"x\")",
+        'assert swap_pair(1, 2) == (2, 1)\nassert swap_pair("x", "y") == ("y", "x")',
         180,
     ),
     level(
@@ -175,7 +175,7 @@ LEVELS = [
         "`first_item([4, 5, 6])` -> `4`",
         "- Do not modify the list.",
         "def first_item(items):\n    pass\n",
-        "assert first_item([4, 5, 6]) == 4\nassert first_item([\"a\"]) == \"a\"\nassert first_item([]) is None",
+        'assert first_item([4, 5, 6]) == 4\nassert first_item(["a"]) == "a"\nassert first_item([]) is None',
         180,
     ),
     level(
@@ -187,7 +187,7 @@ LEVELS = [
         "`last_item([1, 2, 3])` -> `3`",
         "- Use index-based access.",
         "def last_item(items):\n    pass\n",
-        "assert last_item([1, 2, 3]) == 3\nassert last_item([\"z\"]) == \"z\"\nassert last_item([]) is None",
+        'assert last_item([1, 2, 3]) == 3\nassert last_item(["z"]) == "z"\nassert last_item([]) is None',
         180,
     ),
     level(
@@ -235,7 +235,7 @@ LEVELS = [
         "`count_occurrences([1,2,1], 1)` -> `2`",
         "- Return `0` if target is not present.",
         "def count_occurrences(items, target):\n    pass\n",
-        "assert count_occurrences([1, 2, 1, 1], 1) == 3\nassert count_occurrences([\"a\", \"b\"], \"x\") == 0",
+        'assert count_occurrences([1, 2, 1, 1], 1) == 3\nassert count_occurrences(["a", "b"], "x") == 0',
         210,
     ),
     level(
@@ -677,7 +677,7 @@ LEVELS = [
     level(
         53,
         "Student Counter",
-        "Create class `Student` with class variable `student_count`.\nIncrease it every time a new student is created.\nAlso implement `label()` returning `\"<name> (Grade <grade>)\"`.",
+        'Create class `Student` with class variable `student_count`.\nIncrease it every time a new student is created.\nAlso implement `label()` returning `"<name> (Grade <grade>)"`.',
         "Constructor: `Student(name, grade)`.",
         "Track instances and return formatted labels.",
         "`Student('Kira', 10).label()` -> `'Kira (Grade 10)'`",

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 def update_leaderboard_cache():
     """
     Periodic task to calculate and cache the leaderboard.
+    Returns a summary dict stored in the Celery result backend.
     """
     User = get_user_model()
     logger.info("Starting leaderboard calculation task...")
@@ -52,7 +53,8 @@ def update_leaderboard_cache():
 
         cache.set("leaderboard_data", data, timeout=None)
         logger.info("Leaderboard updated successfully.")
+        return {"status": "success", "entries": len(data)}
 
     except Exception as e:
         logger.exception("Leaderboard task failed: %s", str(e))
-
+        return {"status": "error", "error": str(e)}

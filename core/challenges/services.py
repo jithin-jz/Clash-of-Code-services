@@ -59,12 +59,14 @@ class ChallengeService:
         """
         Retrieves detailed challenge info and tracks start time.
         """
-        progress, created = UserProgress.objects.get_or_create(user=user, challenge=challenge)
+        progress, created = UserProgress.objects.get_or_create(
+            user=user, challenge=challenge
+        )
 
         # Set start time on first access
         if not progress.started_at:
             progress.started_at = timezone.now()
-            progress.save(update_fields=['started_at'])
+            progress.save(update_fields=["started_at"])
 
         return {
             "status": progress.status,
@@ -87,19 +89,19 @@ class ChallengeService:
         # 3 Stars: No AI hints + fast completion
         # 2 Stars: 1 AI hint OR moderate time
         # 1 Star: 2+ AI hints OR very slow
-        
+
         stars = 3
-        
+
         # Penalty for AI hints (-1 star per hint)
         stars -= progress.ai_hints_purchased
-        
+
         # Penalty for slow completion time
         if progress.started_at:
             completion_time = (timezone.now() - progress.started_at).total_seconds()
             # Lose 1 star if took more than 2x target time
             if completion_time > 2 * challenge.target_time_seconds:
                 stars -= 1
-        
+
         # Ensure minimum 1 star
         stars = max(1, stars)
 
@@ -120,7 +122,7 @@ class ChallengeService:
                 XPService.add_xp(user, xp_earned, source="challenge_completion")
 
         next_slug = ChallengeService._get_next_level_slug(challenge, user)
-        
+
         # Certificate generation is handled automatically by signals.
         # Eligibility threshold comes from the configured global level set.
 
@@ -131,8 +133,6 @@ class ChallengeService:
             "next_level_slug": next_slug,
         }
 
-
-
     @staticmethod
     def purchase_ai_assist(user, challenge):
         """
@@ -141,16 +141,14 @@ class ChallengeService:
         2nd hint: 20 XP
         3rd hint: 30 XP
         """
-        progress, _ = UserProgress.objects.get_or_create(
-            user=user, challenge=challenge
-        )
-        
+        progress, _ = UserProgress.objects.get_or_create(user=user, challenge=challenge)
+
         if progress.ai_hints_purchased >= 3:
             raise PermissionError("Maximum of 3 AI hints allowed for this challenge.")
-        
+
         current_count = progress.ai_hints_purchased
         cost = 10 * (current_count + 1)
-        
+
         if user.profile.xp >= cost:
             XPService.add_xp(user, -cost, source="ai_assist")
 
@@ -160,7 +158,6 @@ class ChallengeService:
             return user.profile.xp
         else:
             raise PermissionError("Insufficient XP")
-
 
     @staticmethod
     def _get_next_level_slug(current_challenge, user):

@@ -9,4 +9,3 @@ router.register(r"certificates", CertificateViewSet, basename="certificate")
 urlpatterns = [
     path("", include(router.urls)),
 ]
-
