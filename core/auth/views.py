@@ -1,4 +1,5 @@
 from urllib.parse import urlencode
+import logging
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -22,6 +23,8 @@ from .serializers import (
 )
 from .services import AuthService
 from .utils import generate_access_token, decode_token, generate_tokens
+
+logger = logging.getLogger(__name__)
 
 
 def _set_auth_cookies(response, access_token: str, refresh_token: str | None = None):
@@ -359,14 +362,30 @@ class OTPRequestView(APIView):
 
         email = serializer.validated_data["email"]
         try:
-            AuthService.request_otp(email)
+            result = AuthService.request_otp(email)
         except ValidationError as exc:
             message = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
+            status_code = status.HTTP_429_TOO_MANY_REQUESTS
+            if "deliver OTP" in message:
+                status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return Response(
-                {"error": message}, status=status.HTTP_429_TOO_MANY_REQUESTS
+                {"error": message}, status=status_code
+            )
+        except Exception:
+            logger.exception("OTP request failed for email=%s", email)
+            return Response(
+                {
+                    "error": "OTP service is temporarily unavailable. Please try again."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
+        payload = {"message": "OTP sent successfully"}
+        debug_otp = result.get("debug_otp") if isinstance(result, dict) else None
+        if debug_otp:
+            payload["debug_otp"] = debug_otp
+
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class OTPVerifyView(APIView):

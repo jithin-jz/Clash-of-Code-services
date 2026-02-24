@@ -6,6 +6,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.db.utils import DataError
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.cache import cache
@@ -46,6 +47,33 @@ class AuthService:
     @staticmethod
     def _otp_request_key(email: str) -> str:
         return f"auth:otp:request_count:{email.lower().strip()}"
+
+    @staticmethod
+    def _cache_get(key: str, default=None):
+        """
+        Safe cache read.
+
+        If Redis/cache is unavailable, auth should still function rather than 500.
+        """
+        try:
+            return cache.get(key, default)
+        except Exception:
+            logger.exception("Cache get failed for key=%s", key)
+            return default
+
+    @staticmethod
+    def _cache_set(key: str, value, timeout: int | None = None):
+        try:
+            cache.set(key, value, timeout=timeout)
+        except Exception:
+            logger.exception("Cache set failed for key=%s", key)
+
+    @staticmethod
+    def _cache_delete(key: str):
+        try:
+            cache.delete(key)
+        except Exception:
+            logger.exception("Cache delete failed for key=%s", key)
 
     @staticmethod
     def handle_oauth_login(provider, code):
@@ -242,15 +270,25 @@ class AuthService:
         """Generates and sends an OTP to the given email."""
         email = email.lower().strip()
         request_key = AuthService._otp_request_key(email)
-        request_count = cache.get(request_key, 0)
+        request_count = AuthService._cache_get(request_key, 0) or 0
         if request_count >= AuthService.OTP_REQUEST_MAX:
             raise ValidationError("Too many OTP requests. Please try again later.")
 
         otp_code = generate_otp_code()
         otp_hash = hash_otp(email, otp_code)
 
-        EmailOTP.objects.create(email=email, otp=otp_hash)
+        try:
+            EmailOTP.objects.create(email=email, otp=otp_hash)
+        except DataError:
+            # Backward-compat fallback for environments where migration 0008
+            # (otp max_length=128) is not yet applied.
+            logger.warning(
+                "EmailOTP hash insert failed; falling back to legacy plain OTP storage. "
+                "Run auth migration 0008 immediately."
+            )
+            EmailOTP.objects.create(email=email, otp=otp_code)
 
+        delivery_ok = True
         if settings.OTP_EMAIL_ASYNC:
             try:
                 send_otp_email_task.delay(email, otp_code)
@@ -259,17 +297,23 @@ class AuthService:
                     "Failed to enqueue OTP email task. Falling back to sync send for %s",
                     email,
                 )
-                send_otp_email(email, otp_code)
+                delivery_ok = send_otp_email(email, otp_code)
         else:
-            send_otp_email(email, otp_code)
+            delivery_ok = send_otp_email(email, otp_code)
 
-        cache.set(
+        AuthService._cache_set(
             request_key,
             request_count + 1,
             timeout=AuthService.OTP_REQUEST_WINDOW_SECONDS,
         )
 
-        return True
+        if not delivery_ok and not getattr(settings, "OTP_EXPOSE_DEBUG", False):
+            raise ValidationError("Failed to deliver OTP email. Please try again later.")
+
+        return {
+            "ok": True,
+            "debug_otp": otp_code if getattr(settings, "OTP_EXPOSE_DEBUG", False) else None,
+        }
 
     @staticmethod
     def verify_otp(email, otp):
@@ -281,7 +325,7 @@ class AuthService:
         lock_key = AuthService._otp_lock_key(email)
         attempts_key = AuthService._otp_attempts_key(email)
 
-        if cache.get(lock_key):
+        if AuthService._cache_get(lock_key):
             logger.warning(f"OTP locked for {email}")
             return None, {"error": "Too many invalid attempts. Try again later."}
 
@@ -296,18 +340,25 @@ class AuthService:
             .order_by("-created_at")[:5]
         )
         otp_record = next(
-            (item for item in otp_candidates if hmac.compare_digest(item.otp, otp_hash)),
+            (
+                item
+                for item in otp_candidates
+                if hmac.compare_digest(item.otp, otp_hash)
+                or hmac.compare_digest(item.otp, otp)
+            ),
             None,
         )
 
         if otp_record is None:
             logger.warning(f"OTP not found or expired for {email}")
-            attempts = cache.get(attempts_key, 0) + 1
-            cache.set(
+            attempts = (AuthService._cache_get(attempts_key, 0) or 0) + 1
+            AuthService._cache_set(
                 attempts_key, attempts, timeout=AuthService.OTP_VERIFY_WINDOW_SECONDS
             )
             if attempts >= AuthService.OTP_VERIFY_MAX_ATTEMPTS:
-                cache.set(lock_key, 1, timeout=AuthService.OTP_VERIFY_LOCK_SECONDS)
+                AuthService._cache_set(
+                    lock_key, 1, timeout=AuthService.OTP_VERIFY_LOCK_SECONDS
+                )
             return None, {"error": "Invalid or expired OTP."}
 
         try:
@@ -352,8 +403,8 @@ class AuthService:
                         )
 
                 otp_record.delete()
-                cache.delete(attempts_key)
-                cache.delete(lock_key)
+                AuthService._cache_delete(attempts_key)
+                AuthService._cache_delete(lock_key)
                 tokens = generate_tokens(user)
 
             if not user.is_active:

@@ -197,6 +197,8 @@ def send_otp_email(email, otp):
         )
 
         logger.info("OTP email sent to %s", email)
+        return True
 
     except Exception:
         logger.exception("Failed to send OTP email to %s", email)
+        return False
