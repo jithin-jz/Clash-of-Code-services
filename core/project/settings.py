@@ -354,17 +354,11 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = f"{FRONTEND_URL}/auth/google/callback"
 
 # Email Configuration — AWS SES
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django_ses.SESBackend",
-)
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django_ses.SESBackend")
 AWS_SES_REGION_NAME = os.getenv("AWS_SES_REGION", "ap-south-1")
 AWS_SES_REGION_ENDPOINT = f"email.{AWS_SES_REGION_NAME}.amazonaws.com"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "jzdieheart@gmail.com")
-OTP_EMAIL_ASYNC = (
-    os.getenv("OTP_EMAIL_ASYNC", "false" if DEBUG else "true").lower() == "true"
-)
-OTP_EXPOSE_DEBUG = _parse_bool(os.getenv("OTP_EXPOSE_DEBUG"), default=DEBUG)
+OTP_EMAIL_ASYNC = os.getenv("OTP_EMAIL_ASYNC", "true").lower() == "true"
 
 # Razorpay
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")

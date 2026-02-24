@@ -6,7 +6,6 @@ import requests
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.utils import DataError
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.cache import cache
@@ -277,16 +276,7 @@ class AuthService:
         otp_code = generate_otp_code()
         otp_hash = hash_otp(email, otp_code)
 
-        try:
-            EmailOTP.objects.create(email=email, otp=otp_hash)
-        except DataError:
-            # Backward-compat fallback for environments where migration 0008
-            # (otp max_length=128) is not yet applied.
-            logger.warning(
-                "EmailOTP hash insert failed; falling back to legacy plain OTP storage. "
-                "Run auth migration 0008 immediately."
-            )
-            EmailOTP.objects.create(email=email, otp=otp_code)
+        EmailOTP.objects.create(email=email, otp=otp_hash)
 
         delivery_ok = True
         if settings.OTP_EMAIL_ASYNC:
@@ -307,13 +297,10 @@ class AuthService:
             timeout=AuthService.OTP_REQUEST_WINDOW_SECONDS,
         )
 
-        if not delivery_ok and not getattr(settings, "OTP_EXPOSE_DEBUG", False):
+        if not delivery_ok:
             raise ValidationError("Failed to deliver OTP email. Please try again later.")
 
-        return {
-            "ok": True,
-            "debug_otp": otp_code if getattr(settings, "OTP_EXPOSE_DEBUG", False) else None,
-        }
+        return {"ok": True}
 
     @staticmethod
     def verify_otp(email, otp):
@@ -344,7 +331,6 @@ class AuthService:
                 item
                 for item in otp_candidates
                 if hmac.compare_digest(item.otp, otp_hash)
-                or hmac.compare_digest(item.otp, otp)
             ),
             None,
         )

@@ -362,7 +362,7 @@ class OTPRequestView(APIView):
 
         email = serializer.validated_data["email"]
         try:
-            result = AuthService.request_otp(email)
+            AuthService.request_otp(email)
         except ValidationError as exc:
             message = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
             status_code = status.HTTP_429_TOO_MANY_REQUESTS
@@ -380,12 +380,7 @@ class OTPRequestView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        payload = {"message": "OTP sent successfully"}
-        debug_otp = result.get("debug_otp") if isinstance(result, dict) else None
-        if debug_otp:
-            payload["debug_otp"] = debug_otp
-
-        return Response(payload, status=status.HTTP_200_OK)
+        return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
 
 
 class OTPVerifyView(APIView):

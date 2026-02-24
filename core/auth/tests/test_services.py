@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from unittest.mock import patch, MagicMock
 from auth.services import AuthService
 from auth.models import EmailOTP
+from auth.utils import hash_otp
 from django.core.cache import cache
 
 
@@ -16,7 +17,10 @@ class AuthServiceTest(TestCase):
     @patch("auth.services.send_welcome_email_task.delay")
     def test_verify_otp_success_new_user(self, mock_welcome_task, mock_generate_tokens):
         # 1. Setup: Create a valid OTP record in the DB
-        EmailOTP.objects.create(email=self.email, otp=self.otp_code)
+        EmailOTP.objects.create(
+            email=self.email,
+            otp=hash_otp(self.email, self.otp_code),
+        )
         mock_generate_tokens.return_value = {
             "access": "fake-access",
             "refresh": "fake-refresh",
@@ -33,7 +37,10 @@ class AuthServiceTest(TestCase):
 
     def test_verify_otp_invalid_code(self):
         # Setup: Create a valid OTP record
-        EmailOTP.objects.create(email=self.email, otp="111111")
+        EmailOTP.objects.create(
+            email=self.email,
+            otp=hash_otp(self.email, "111111"),
+        )
 
         # Act: Try to verify with a WRONG code
         user, error_data = AuthService.verify_otp(self.email, "999999")
@@ -46,7 +53,10 @@ class AuthServiceTest(TestCase):
     def test_verify_otp_existing_user(self, mock_generate_tokens):
         # Setup: Pre-create the user and the OTP
         User.objects.create_user(username="existing", email=self.email)
-        EmailOTP.objects.create(email=self.email, otp=self.otp_code)
+        EmailOTP.objects.create(
+            email=self.email,
+            otp=hash_otp(self.email, self.otp_code),
+        )
         mock_generate_tokens.return_value = {"access": "token"}
 
         # Act
