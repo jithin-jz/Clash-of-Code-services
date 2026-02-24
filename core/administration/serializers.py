@@ -62,3 +62,19 @@ class SystemIntegritySerializer(serializers.Serializer):
     store_items = serializers.IntegerField()
     notifications = serializers.IntegerField()
     audit_logs = serializers.IntegerField()
+
+
+class UserEngagementAnalyticsSerializer(serializers.Serializer):
+    daily_growth = serializers.ListField(child=serializers.DictField())
+    active_users_24h = serializers.IntegerField()
+    auth_distribution = serializers.ListField(child=serializers.DictField())
+    top_users = serializers.ListField(child=serializers.DictField())
+
+
+class UltimateAnalyticsSerializer(serializers.Serializer):
+    overview = serializers.DictField()
+    growth_trends = serializers.ListField(child=serializers.DictField())
+    economy_pulse = serializers.DictField()
+    top_challenges = serializers.ListField(child=serializers.DictField())
+    top_items = serializers.ListField(child=serializers.DictField())
+    community_leaders = serializers.ListField(child=serializers.DictField())

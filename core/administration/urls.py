@@ -9,6 +9,8 @@ from .views import (
     GlobalNotificationView,
     AdminAuditLogView,
     SystemIntegrityView,
+    UserEngagementAnalyticsView,
+    UltimateAnalyticsView,
 )
 
 urlpatterns = [
@@ -20,6 +22,16 @@ urlpatterns = [
     ),
     path(
         "analytics/store/", StoreAnalyticsView.as_view(), name="admin_store_analytics"
+    ),
+    path(
+        "analytics/engagement/",
+        UserEngagementAnalyticsView.as_view(),
+        name="admin_engagement_analytics",
+    ),
+    path(
+        "analytics/ultimate/",
+        UltimateAnalyticsView.as_view(),
+        name="admin_ultimate_analytics",
     ),
     path("audit-logs/", AdminAuditLogView.as_view(), name="admin_audit_logs"),
     path(

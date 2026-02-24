@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import models
 from django.db.models import Avg, Count, Sum
+from django.db.models.functions import TruncDay
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
@@ -26,6 +27,8 @@ from .serializers import (
     ChallengeAnalyticsSerializer,
     StoreAnalyticsSerializer,
     SystemIntegritySerializer,
+    UserEngagementAnalyticsSerializer,
+    UltimateAnalyticsSerializer,
 )
 
 
@@ -400,6 +403,173 @@ class StoreAnalyticsView(APIView):
         total_revenue = sum(item["revenue"] for item in item_stats)
         data = {"items": item_stats, "total_xp_spent": total_revenue}
         serializer = StoreAnalyticsSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class UserEngagementAnalyticsView(APIView):
+    """View to get user engagement and growth analytics."""
+
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        responses={200: UserEngagementAnalyticsSerializer},
+        description="Get user growth trends, active session counts, and auth provider distribution.",
+    )
+    def get(self, request):
+        now = timezone.now()
+        thirty_days_ago = now - timedelta(days=30)
+
+        # 1. Daily Growth
+        growth_qs = (
+            User.objects.filter(date_joined__gte=thirty_days_ago)
+            .annotate(day=TruncDay("date_joined"))
+            .values("day")
+            .annotate(count=Count("id"))
+            .order_by("day")
+        )
+        daily_growth = [
+            {"date": item["day"].strftime("%Y-%m-%d"), "count": item["count"]}
+            for item in growth_qs
+        ]
+
+        # 2. Active Users (last 24h)
+        active_24h = User.objects.filter(last_login__gte=now - timedelta(days=1)).count()
+
+        # 3. Auth Provider Distribution
+        auth_dist_qs = UserProfile.objects.values("provider").annotate(
+            count=Count("user_id")
+        )
+        auth_distribution = [
+            {"provider": item["provider"] or "email", "count": item["count"]}
+            for item in auth_dist_qs
+        ]
+
+        # 4. Top Users by XP
+        top_profiles = UserProfile.objects.select_related("user").order_by("-xp")[:10]
+        top_users = []
+        for p in top_profiles:
+            followers_count = 0
+            if hasattr(p.user, "followers"):
+                followers_count = p.user.followers.count()
+            top_users.append(
+                {
+                    "username": p.user.username,
+                    "xp": p.xp,
+                    "followers": followers_count,
+                }
+            )
+
+        data = {
+            "daily_growth": daily_growth,
+            "active_users_24h": active_24h,
+            "auth_distribution": auth_distribution,
+            "top_users": top_users,
+        }
+        serializer = UserEngagementAnalyticsSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class UltimateAnalyticsView(APIView):
+    """Unified command center view for all system analytics."""
+
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        responses={200: UltimateAnalyticsSerializer},
+        description="Consolidated analytics including growth, economy, and performance leaderboards.",
+    )
+    def get(self, request):
+        now = timezone.now()
+        thirty_ago = now - timedelta(days=30)
+
+        # 1. Overview Stats
+        overview = {
+            "total_users": User.objects.count(),
+            "active_24h": User.objects.filter(last_login__gte=now - timedelta(days=1)).count(),
+            "total_challenges": Challenge.objects.count(),
+            "store_catalog": StoreItem.objects.filter(is_active=True).count(),
+        }
+
+        # 2. Growth Trends (Daily Registrations - Backfilled)
+        growth_qs = (
+            User.objects.filter(date_joined__gte=thirty_ago)
+            .annotate(day=TruncDay("date_joined"))
+            .values("day")
+            .annotate(count=Count("id"))
+            .order_by("day")
+        )
+        growth_map = {item["day"].date(): item["count"] for item in growth_qs}
+        
+        growth_trends = []
+        for i in range(31):
+            day = (thirty_ago + timedelta(days=i)).date()
+            if day > now.date():
+                break
+            growth_trends.append({
+                "date": day.strftime("%Y-%m-%d"),
+                "count": growth_map.get(day, 0)
+            })
+
+        # 3. Economy Pulse
+        total_circulation_xp = UserProfile.objects.aggregate(total=Sum("xp"))["total"] or 0
+        store_items = StoreItem.objects.annotate(sales=Count("purchases"))
+        total_revenue = sum(item.sales * item.cost for item in store_items)
+        
+        economy_pulse = {
+            "total_circulation_xp": total_circulation_xp,
+            "total_store_revenue": total_revenue,
+            "avg_xp_per_user": (total_circulation_xp / overview["total_users"]) if overview["total_users"] > 0 else 0
+        }
+
+        # 4. Top Challenges (by completions)
+        progress_summary = UserProgress.objects.values("challenge_id").annotate(
+            completions=Count("id", filter=models.Q(status=UserProgress.Status.COMPLETED)),
+            avg_stars=Avg("stars", filter=models.Q(status=UserProgress.Status.COMPLETED)),
+        ).order_by("-completions")[:5]
+        
+        challenge_ids = [row["challenge_id"] for row in progress_summary]
+        challenges = {c.id: c.title for c in Challenge.objects.filter(id__in=challenge_ids)}
+        
+        top_challenges = [
+            {
+                "title": challenges.get(row["challenge_id"], "Unknown"),
+                "completions": row["completions"],
+                "avg_stars": row["avg_stars"] or 0,
+            }
+            for row in progress_summary
+        ]
+
+        # 5. Top Items (by revenue)
+        item_stats = [
+            {
+                "name": item.name,
+                "revenue": item.sales * item.cost,
+                "sales": item.sales
+            }
+            for item in store_items
+        ]
+        top_items = sorted(item_stats, key=lambda x: x["revenue"], reverse=True)[:5]
+
+        # 6. Community Leaders
+        top_profiles = UserProfile.objects.select_related("user").order_by("-xp")[:10]
+        community_leaders = [
+            {
+                "username": p.user.username,
+                "xp": p.xp,
+                "followers": p.user.followers.count() if hasattr(p.user, "followers") else 0
+            }
+            for p in top_profiles
+        ]
+
+        data = {
+            "overview": overview,
+            "growth_trends": growth_trends,
+            "economy_pulse": economy_pulse,
+            "top_challenges": top_challenges,
+            "top_items": top_items,
+            "community_leaders": community_leaders,
+        }
+        serializer = UltimateAnalyticsSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
