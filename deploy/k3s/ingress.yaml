@@ -11,10 +11,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - api.coc.example.com
+        - api-coc.jithin.site
       secretName: coc-api-tls
   rules:
-    - host: api.coc.example.com
+    - host: api-coc.jithin.site
       http:
         paths:
           - path: /api

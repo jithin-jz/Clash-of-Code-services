@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: core
-          image: ghcr.io/your-org/coc-core:latest
+          image: ghcr.io/jithin-jz/clash-of-code-services-core:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
@@ -61,7 +61,7 @@ spec:
     spec:
       containers:
         - name: celery-worker
-          image: ghcr.io/your-org/coc-core:latest
+          image: ghcr.io/jithin-jz/clash-of-code-services-core:latest
           imagePullPolicy: IfNotPresent
           command: ["celery", "-A", "project", "worker", "--loglevel=info"]
           envFrom:
@@ -94,7 +94,7 @@ spec:
     spec:
       containers:
         - name: celery-beat
-          image: ghcr.io/your-org/coc-core:latest
+          image: ghcr.io/jithin-jz/clash-of-code-services-core:latest
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -136,7 +136,7 @@ spec:
     spec:
       containers:
         - name: chat
-          image: ghcr.io/your-org/coc-chat:latest
+          image: ghcr.io/jithin-jz/clash-of-code-services-chat:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
@@ -182,7 +182,7 @@ spec:
     spec:
       containers:
         - name: ai
-          image: ghcr.io/your-org/coc-ai:latest
+          image: ghcr.io/jithin-jz/clash-of-code-services-ai:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8002
