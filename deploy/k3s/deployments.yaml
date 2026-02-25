@@ -21,7 +21,7 @@ spec:
             - containerPort: 8000
           envFrom:
             - configMapRef:
-                name: core-config
+                name: coc-config
             - secretRef:
                 name: coc-secrets
           readinessProbe:
@@ -66,7 +66,7 @@ spec:
           command: ["celery", "-A", "project", "worker", "--loglevel=info"]
           envFrom:
             - configMapRef:
-                name: core-config
+                name: coc-config
             - secretRef:
                 name: coc-secrets
           resources:
@@ -108,7 +108,7 @@ spec:
             ]
           envFrom:
             - configMapRef:
-                name: core-config
+                name: coc-config
             - secretRef:
                 name: coc-secrets
           resources:
