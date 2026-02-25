@@ -71,11 +71,11 @@ spec:
                 name: coc-secrets
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 300m
+              memory: 256Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
