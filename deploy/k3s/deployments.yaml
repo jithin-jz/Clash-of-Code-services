@@ -28,14 +28,14 @@ spec:
             httpGet:
               path: /health/
               port: 8000
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 15
           livenessProbe:
             httpGet:
               path: /health/
               port: 8000
-            initialDelaySeconds: 45
-            periodSeconds: 20
+            initialDelaySeconds: 60
+            periodSeconds: 30
           resources:
             requests:
               cpu: 50m
@@ -155,8 +155,8 @@ spec:
             httpGet:
               path: /
               port: 8001
-            initialDelaySeconds: 45
-            periodSeconds: 20
+            initialDelaySeconds: 60
+            periodSeconds: 30
           resources:
             requests:
               cpu: 50m
@@ -201,8 +201,8 @@ spec:
             httpGet:
               path: /health
               port: 8002
-            initialDelaySeconds: 45
-            periodSeconds: 20
+            initialDelaySeconds: 90
+            periodSeconds: 30
           resources:
             requests:
               cpu: 100m
