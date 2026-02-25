@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 
 # Local imports
 from config import settings
@@ -62,7 +62,7 @@ async def global_exception_handler(request, exc: Exception):
 
 # Initialize RAG Components
 # Using local embedding model to save API costs
-embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+embeddings = HuggingFaceInferenceAPIEmbeddings(api_key=settings.HUGGINGFACE_API_KEY, model_name=settings.EMBEDDING_MODEL)
 
 # Connect to stand-alone ChromaDB server
 import chromadb
