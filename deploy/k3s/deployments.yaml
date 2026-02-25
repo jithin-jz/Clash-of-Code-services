@@ -28,14 +28,16 @@ spec:
             httpGet:
               path: /health/
               port: 8000
-            initialDelaySeconds: 30
-            periodSeconds: 15
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            failureThreshold: 5
           livenessProbe:
             httpGet:
               path: /health/
               port: 8000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90
             periodSeconds: 30
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m
@@ -155,8 +157,9 @@ spec:
             httpGet:
               path: /
               port: 8001
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90
             periodSeconds: 30
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m
@@ -201,8 +204,9 @@ spec:
             httpGet:
               path: /health
               port: 8002
-            initialDelaySeconds: 90
+            initialDelaySeconds: 120
             periodSeconds: 30
+            failureThreshold: 3
           resources:
             requests:
               cpu: 100m
@@ -214,20 +218,20 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: chroma
+  name: chromadb
   namespace: coc
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: chroma
+      app: chromadb
   template:
     metadata:
       labels:
-        app: chroma
+        app: chromadb
     spec:
       containers:
-        - name: chroma
+        - name: chromadb
           image: chromadb/chroma:latest
           ports:
             - containerPort: 8000

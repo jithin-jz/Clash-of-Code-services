@@ -40,11 +40,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: chroma
+  name: chromadb
   namespace: coc
 spec:
   selector:
-    app: chroma
+    app: chromadb
   ports:
     - name: http
       port: 8000
