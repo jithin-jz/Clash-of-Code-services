@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     INTERNAL_API_KEY: str
     INTERNAL_SIGNING_SECRET: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
+    HUGGINGFACE_API_KEY: Optional[str] = None
     
     # LLM Settings
     LLM_PROVIDER: str = "groq" 
