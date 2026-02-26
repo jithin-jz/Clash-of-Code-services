@@ -166,6 +166,11 @@ STATIC_URL = "static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 WHITENOISE_MANIFEST_STRICT = False
 
+import django
+STATICFILES_DIRS = [
+    os.path.join(os.path.dirname(django.__file__), 'contrib/admin/static'),
+]
+
 
 # Media files
 MEDIA_URL = "/media/"
