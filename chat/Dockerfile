@@ -5,10 +5,18 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN useradd -m -u 10001 appuser
+# Install system dependencies
+# libpq-dev: needed for asyncpg PostgreSQL driver
+# curl: used for healthcheck probe
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 10001 appuser
 
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=appuser:appuser . .
