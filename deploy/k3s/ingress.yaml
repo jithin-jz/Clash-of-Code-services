@@ -1,12 +1,11 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: coc-api
+  name: coc-api-core
   namespace: coc
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     traefik.ingress.kubernetes.io/router.entrypoints: web, websecure
-    traefik.ingress.kubernetes.io/router.middlewares: coc-coc-strip-ai-prefix@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
@@ -31,13 +30,6 @@ spec:
                 name: chat
                 port:
                   number: 8001
-          - path: /ai
-            pathType: Prefix
-            backend:
-              service:
-                name: ai
-                port:
-                  number: 8002
           - path: /api
             pathType: Prefix
             backend:
@@ -52,13 +44,30 @@ spec:
                 name: core
                 port:
                   number: 8000
-    # Catch-all rule for IP access (no HTTPS support for bare IP)
-    - http:
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: coc-api-ai
+  namespace: coc
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.entrypoints: web, websecure
+    traefik.ingress.kubernetes.io/router.middlewares: coc-coc-strip-ai-prefix@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api-coc.jithin.site
+      secretName: coc-api-tls
+  rules:
+    - host: api-coc.jithin.site
+      http:
         paths:
-          - path: /
+          - path: /ai
             pathType: Prefix
             backend:
               service:
-                name: core
+                name: ai
                 port:
-                  number: 8000
+                  number: 8002
