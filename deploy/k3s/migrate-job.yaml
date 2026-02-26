@@ -4,6 +4,7 @@ metadata:
   name: core-migrate
   namespace: coc
 spec:
+  ttlSecondsAfterFinished: 3600 # Clean up job after 1 hour
   backoffLimit: 0
   template:
     spec:
@@ -11,7 +12,7 @@ spec:
       containers:
         - name: migrate
           image: ghcr.io/jithin-jz/clash-of-code-services-core:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command:
             [
               "sh",

@@ -1,64 +1,69 @@
-# AWS K3s Deployment
+# 🚢 AWS K3s Production Deployment
 
-This directory contains production manifests for running backend services on K3s.
+This directory contains the necessary Kubernetes manifests for running Clash of Code in a production environment.
 
-## 1. Prerequisites
+## 📋 Prerequisites
 
-- K3s cluster on AWS
-- `kubectl` access
-- `ingress-nginx` installed
-- `cert-manager` installed (optional but recommended)
-- External managed data services configured:
-  - PostgreSQL (RDS) for `core` + `chat`
-  - Redis (ElastiCache)
-  - Chroma endpoint
-  - DynamoDB
+- **K3s Cluster**: A running K3s cluster on AWS (e.g., on EC2).
+- **kubectl**: CLI access to your cluster.
+- **Traefik**: Standard K3s ingress controller.
+- **cert-manager**: Installed for automatic SSL with Let's Encrypt.
+- **Managed Services**: Ensure you have credentials for:
+  - PostgreSQL (e.g., Supabase/RDS)
+  - Redis (e.g., ElastiCache/Upstash)
+  - Amazon DynamoDB
+  - Cloudinary (Media hosting)
+  - AWS SES (Transactional emails)
 
-## 2. Configure Secrets
+## 🔐 1. Configure Secrets
 
-1. Copy `secrets.example.yaml` to `secrets.yaml`.
-2. Replace every placeholder with real values, including Cloudinary credentials:
-   - `CLOUDINARY_CLOUD_NAME`
-   - `CLOUDINARY_API_KEY`
-   - `CLOUDINARY_API_SECRET`
-3. Apply secrets:
+Do **not** store real secrets in this repository. Instead, create them directly in your cluster:
 
 ```bash
-kubectl apply -f deploy/k3s/secrets.yaml
+kubectl create secret generic coc-secrets -n coc \
+  --from-literal=SECRET_KEY="your-django-secret" \
+  --from-literal=DB_PASSWORD="your-db-password" \
+  --from-literal=GOOGLE_CLIENT_ID="your-id" \
+  --from-literal=GOOGLE_CLIENT_SECRET="your-secret" \
+  --from-literal=CLOUDINARY_URL="your-cloudinary-url" \
+  --from-literal=JWT_PRIVATE_KEY="$(cat your-private.pem)" \
+  --from-literal=JWT_PUBLIC_KEY="$(cat your-public.pem)"
 ```
 
-## 3. Configure Non-Secret Settings
+## ⚙️ 2. Configure Settings (ConfigMap)
 
-Update `configmaps.yaml` values for your domain and managed service endpoints.
+Edit `configmaps.yaml` and update the following for your production environment:
 
-## 4. Deploy
+- `FRONTEND_URL` & `BACKEND_URL`
+- `DB_HOST`, `DB_PORT`, and `AWS_REGION`
+- `EMAIL_BACKEND` (Set to SES or SMTP)
+
+## 🚀 3. Deploy
+
+Apply the namespace first, then everything else:
 
 ```bash
-kubectl apply -k deploy/k3s
-kubectl apply -f deploy/k3s/migrate-job.yaml
+kubectl apply -f namespace.yaml
+kubectl apply -f .
 ```
 
-## 5. Verify
+Run the database migrations:
 
 ```bash
-kubectl -n coc get pods
-kubectl -n coc get ingress
-kubectl -n coc logs deploy/core
+kubectl apply -f migrate-job.yaml
 ```
 
-## 6. Vercel Frontend Settings
+## 🏥 4. Health Checks
 
-In Vercel project environment variables:
+Monitor the health of your services:
 
-- `VITE_API_URL=https://api.coc.example.com/api`
-- `VITE_CHAT_URL=wss://api.coc.example.com/ws/chat`
-- `VITE_WS_URL=wss://api.coc.example.com/ws/chat`
-- `VITE_NOTIFICATIONS_WS_URL=wss://api.coc.example.com/ws/notifications`
-- `VITE_AI_URL=https://api.coc.example.com/ai`
-- Firebase `VITE_FIREBASE_*` values
+- **Core**: `https://api.your-domain.com/health/`
+- **AI**: `https://api.your-domain.com/ai/health`
+- **Chat**: `https://api.your-domain.com/api/chat/health` (Internal: `chat:8001/`)
 
-For cookie auth across Vercel and API domains, keep backend config:
+## 🛠️ Update Workflow
 
-- `JWT_COOKIE_SECURE=true`
-- `JWT_COOKIE_SAMESITE=None`
-- CORS/CSRF origins set to your Vercel domain
+When updating services:
+
+1. Build and push new Docker images (e.g., `ghcr.io/your-user/coc-core:latest`).
+2. Run `kubectl rollout restart deployment <service-name> -n coc`.
