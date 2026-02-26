@@ -28,6 +28,7 @@ spec:
             httpGet:
               path: /health/
               port: 8000
+              scheme: HTTP
             initialDelaySeconds: 60
             periodSeconds: 20
             timeoutSeconds: 10
@@ -36,6 +37,7 @@ spec:
             httpGet:
               path: /health/
               port: 8000
+              scheme: HTTP
             initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 10
@@ -47,6 +49,12 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: static-data
+              mountPath: /app/staticfiles
+      volumes:
+        - name: static-data
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -153,12 +161,14 @@ spec:
             httpGet:
               path: /
               port: 8001
+              scheme: HTTP
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
               port: 8001
+              scheme: HTTP
             initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 10
@@ -201,12 +211,14 @@ spec:
             httpGet:
               path: /health
               port: 8002
+              scheme: HTTP
             initialDelaySeconds: 20
             periodSeconds: 15
           livenessProbe:
             httpGet:
               path: /health
               port: 8002
+              scheme: HTTP
             initialDelaySeconds: 180
             periodSeconds: 30
             timeoutSeconds: 10
