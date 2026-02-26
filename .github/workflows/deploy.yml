@@ -74,13 +74,23 @@ jobs:
     steps:
       - name: Rollout restart all services
         run: |
-          set -e
           echo "=== Restarting deployments ==="
-          kubectl rollout restart deployment/core          -n coc
-          kubectl rollout restart deployment/celery-worker -n coc
-          kubectl rollout restart deployment/celery-beat   -n coc
-          kubectl rollout restart deployment/chat          -n coc
-          kubectl rollout restart deployment/ai            -n coc
+          # Retry each deployment up to 3 times — K3s API can TLS-timeout under load
+          for deployment in core celery-worker celery-beat chat ai; do
+            for attempt in 1 2 3; do
+              if kubectl rollout restart deployment/$deployment -n coc 2>&1; then
+                echo "✓ $deployment restarted"
+                break
+              else
+                echo "⚠ Attempt $attempt failed for $deployment, retrying in 10s..."
+                sleep 10
+              fi
+              if [ $attempt -eq 3 ]; then
+                echo "✗ Failed to restart $deployment after 3 attempts"
+                exit 1
+              fi
+            done
+          done
 
       - name: Wait for rollouts to complete
         run: |
