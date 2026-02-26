@@ -9,6 +9,8 @@ data:
   BACKEND_URL: "https://api-coc.jithin.site"
   CORS_ALLOWED_ORIGINS: "https://clashcode.jithin.site"
   CSRF_TRUSTED_ORIGINS: "https://clashcode.jithin.site,https://api-coc.jithin.site"
+  DEBUG: "false"
+  SECURE_SSL_REDIRECT: "false"
   EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
   
   # --- Database Connection ---
