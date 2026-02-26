@@ -52,9 +52,15 @@ spec:
           volumeMounts:
             - name: static-data
               mountPath: /app/staticfiles
+            - name: firebase-key
+              mountPath: /etc/firebase
+              readOnly: true
       volumes:
         - name: static-data
           emptyDir: {}
+        - name: firebase-key
+          secret:
+            secretName: firebase-keys
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -88,6 +94,14 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          volumeMounts:
+            - name: firebase-key
+              mountPath: /etc/firebase
+              readOnly: true
+      volumes:
+        - name: firebase-key
+          secret:
+            secretName: firebase-keys
 ---
 apiVersion: apps/v1
 kind: Deployment
