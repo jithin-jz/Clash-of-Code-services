@@ -64,4 +64,3 @@ Similar Challenges Context: {rag_context}
 
 Generate a code review following the required sections.
 """
-

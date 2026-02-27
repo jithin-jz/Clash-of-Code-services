@@ -368,15 +368,11 @@ class OTPRequestView(APIView):
             status_code = status.HTTP_429_TOO_MANY_REQUESTS
             if "deliver OTP" in message:
                 status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return Response(
-                {"error": message}, status=status_code
-            )
+            return Response({"error": message}, status=status_code)
         except Exception:
             logger.exception("OTP request failed for email=%s", email)
             return Response(
-                {
-                    "error": "OTP service is temporarily unavailable. Please try again."
-                },
+                {"error": "OTP service is temporarily unavailable. Please try again."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 

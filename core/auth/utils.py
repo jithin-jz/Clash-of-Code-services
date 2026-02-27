@@ -30,9 +30,7 @@ def generate_access_token(user):
         "username": user.username,
         "email": user.email,
         "avatar_url": (
-            build_file_url(user.profile.avatar)
-            if hasattr(user, "profile")
-            else None
+            build_file_url(user.profile.avatar) if hasattr(user, "profile") else None
         ),
         "exp": datetime.now(timezone.utc)
         + timedelta(seconds=settings.JWT_ACCESS_TOKEN_LIFETIME),

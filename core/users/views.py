@@ -321,9 +321,7 @@ class UserFollowersView(APIView):
                     "username": follower_user.username,
                     "first_name": follower_user.first_name,
                     "avatar_url": (
-                        build_file_url(profile.avatar, request)
-                        if profile
-                        else None
+                        build_file_url(profile.avatar, request) if profile else None
                     ),
                     "is_following": is_following,
                 }
@@ -367,9 +365,7 @@ class UserFollowingView(APIView):
                     "username": following_user.username,
                     "first_name": following_user.first_name,
                     "avatar_url": (
-                        build_file_url(profile.avatar, request)
-                        if profile
-                        else None
+                        build_file_url(profile.avatar, request) if profile else None
                     ),
                     "is_following": is_following,
                 }
