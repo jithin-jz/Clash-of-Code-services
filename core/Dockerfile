@@ -21,14 +21,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 COPY --chown=appuser:appuser . .
 
-# Collect static files at BUILD TIME (baked into the image)
-# Dummy credentials satisfy settings.py validation — nothing actually connects
-RUN SECRET_KEY=build-collect-static-dummy-key \
-    DB_NAME=dummy DB_USER=dummy DB_PASSWORD=dummy DB_HOST=localhost DB_PORT=5432 \
-    CLOUDINARY_CLOUD_NAME=dummy CLOUDINARY_API_KEY=dummy CLOUDINARY_API_SECRET=dummy \
-    python manage.py collectstatic --noinput \
-    && mkdir -p staticfiles \
-    && chown -R appuser:appuser staticfiles
+# Copy static files directly from installed packages — bypasses collectstatic entirely.
+# collectstatic returns 0 files due to cloudinary_storage app interference at build time.
+RUN mkdir -p /app/staticfiles/admin /app/staticfiles/rest_framework \
+    && cp -R $(python -c "import django, os; print(os.path.join(os.path.dirname(django.__file__), 'contrib/admin/static/admin'))")/* /app/staticfiles/admin/ \
+    && cp -R $(python -c "import rest_framework, os; print(os.path.join(os.path.dirname(rest_framework.__file__), 'static/rest_framework'))")/* /app/staticfiles/rest_framework/ \
+    && chown -R appuser:appuser staticfiles \
+    && echo "Static files:" && ls -la /app/staticfiles/
+
 
 EXPOSE 8000
 
