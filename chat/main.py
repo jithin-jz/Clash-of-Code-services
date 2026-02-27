@@ -17,8 +17,7 @@ from dynamo import dynamo_client
 
 # Configure structured logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -44,14 +43,19 @@ rate_limiter = RateLimiter(redis_client)
 HISTORY_LIMIT = 50
 TYPING_INDICATOR_TTL = 3  # seconds
 
+
 @app.on_event("startup")
 async def on_startup():
     await init_db()
     await dynamo_client.create_table_if_not_exists()
 
+
 @app.get("/", status_code=status.HTTP_200_OK)
 async def health_check():
-    return JSONResponse(content={"status": "ok", "service": "chat"}, status_code=status.HTTP_200_OK)
+    return JSONResponse(
+        content={"status": "ok", "service": "chat"}, status_code=status.HTTP_200_OK
+    )
+
 
 # Global Exception Handler
 @app.exception_handler(Exception)
@@ -59,8 +63,9 @@ async def global_exception_handler(request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         content={"error": "Internal server error"},
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
+
 
 @app.get("/history/{room}")
 async def get_message_history(
@@ -80,14 +85,13 @@ async def get_message_history(
     payload = verify_jwt(token or "")
     if not payload:
         return JSONResponse(
-            content={"error": "Invalid token"},
-            status_code=status.HTTP_401_UNAUTHORIZED
+            content={"error": "Invalid token"}, status_code=status.HTTP_401_UNAUTHORIZED
         )
-    
+
     try:
         # Try fetching from DynamoDB first for high performance
         messages = await dynamo_client.get_messages(room, limit=limit)
-        
+
         if messages:
             return JSONResponse(
                 content={
@@ -96,14 +100,16 @@ async def get_message_history(
                             "username": msg["sender"],
                             "message": msg["content"],
                             "timestamp": msg["timestamp"],
-                            "reactions": msg.get("reactions", {})
+                            "reactions": msg.get("reactions", {}),
                         }
-                        for msg in reversed(messages) # Dynamo returns latest first, we want chronological
+                        for msg in reversed(
+                            messages
+                        )  # Dynamo returns latest first, we want chronological
                     ],
                     "has_more": len(messages) == limit,
-                    "source": "dynamodb"
+                    "source": "dynamodb",
                 },
-                status_code=status.HTTP_200_OK
+                status_code=status.HTTP_200_OK,
             )
 
         # Fallback to SQL if Dynamo is empty (migration period)
@@ -121,10 +127,10 @@ async def get_message_history(
             )
             result = await session.execute(statement)
             messages = result.scalars().all()
-            
+
             # Reverse to get chronological order
             messages = list(reversed(messages))
-            
+
             return JSONResponse(
                 content={
                     "messages": [
@@ -132,25 +138,27 @@ async def get_message_history(
                             "username": msg.username,
                             "message": msg.message,
                             "timestamp": msg.timestamp.isoformat(),
-                            "reactions": msg.reactions or {}
+                            "reactions": msg.reactions or {},
                         }
                         for msg in messages
                     ],
                     "has_more": len(messages) == limit,
-                    "source": "sql"
+                    "source": "sql",
                 },
-                status_code=status.HTTP_200_OK
+                status_code=status.HTTP_200_OK,
             )
     except Exception as e:
         logger.error(f"Error fetching message history: {e}", exc_info=True)
         return JSONResponse(
             content={"error": "Failed to fetch message history"},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
 
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
+
 
 def verify_jwt(token: str) -> dict | None:
     try:
@@ -177,6 +185,7 @@ def channel_key(room: str) -> str:
 # Connection Managers
 # --------------------------------------------------
 
+
 class ConnectionManager:
     def __init__(self):
         self.active: Dict[str, List[WebSocket]] = {}
@@ -188,12 +197,12 @@ class ConnectionManager:
 
         # Start subscriber if first connection
         if len(self.active[room]) == 1 and room not in self.tasks:
-             self.tasks[room] = asyncio.create_task(self.redis_subscriber(room))
+            self.tasks[room] = asyncio.create_task(self.redis_subscriber(room))
 
     async def disconnect(self, ws: WebSocket, room: str):
         if room in self.active and ws in self.active[room]:
             self.active[room].remove(ws)
-            
+
             # Cleanup if room empty
             if not self.active[room]:
                 self.active.pop(room, None)
@@ -233,7 +242,9 @@ class ConnectionManager:
                 logger.error(f"Runtime error broadcasting to room {room}: {e}")
                 dead.append(ws)
             except Exception as e:
-                logger.error(f"Unexpected error broadcasting to room {room}: {e}", exc_info=True)
+                logger.error(
+                    f"Unexpected error broadcasting to room {room}: {e}", exc_info=True
+                )
                 dead.append(ws)
 
         for ws in dead:
@@ -241,6 +252,7 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
 
 class NotificationManager:
     def __init__(self):
@@ -250,9 +262,11 @@ class NotificationManager:
     async def connect(self, ws: WebSocket, user_id: int):
         await ws.accept()
         self.active.setdefault(user_id, []).append(ws)
-        
+
         if len(self.active[user_id]) == 1 and user_id not in self.tasks:
-            self.tasks[user_id] = asyncio.create_task(self.notification_subscriber(user_id))
+            self.tasks[user_id] = asyncio.create_task(
+                self.notification_subscriber(user_id)
+            )
             logger.info(f"Started notification subscriber for user {user_id}")
 
     async def disconnect(self, ws: WebSocket, user_id: int):
@@ -297,17 +311,19 @@ class NotificationManager:
         for ws in dead:
             await self.disconnect(ws, user_id)
 
+
 notification_manager = NotificationManager()
 
 # --------------------------------------------------
 # WebSocket Endpoints
 # --------------------------------------------------
 
+
 @app.websocket("/ws/chat/{room}")
 async def chat_ws(ws: WebSocket, room: str):
     # ---- Auth ----
     token = None
-    
+
     # Fallback to header (for non-browser clients)
     auth = ws.headers.get("authorization")
     if auth and auth.startswith("Bearer "):
@@ -361,7 +377,7 @@ async def chat_ws(ws: WebSocket, room: str):
                     "username": m.username,
                     "avatar_url": m.avatar_url,
                     "timestamp": m.timestamp.isoformat(),
-                    "reactions": m.reactions or {}
+                    "reactions": m.reactions or {},
                 }
                 for m in reversed(messages)
             ]
@@ -369,10 +385,14 @@ async def chat_ws(ws: WebSocket, room: str):
         logger.error("Failed to load chat history for room %s: %s", room, e)
 
     if history_data:
-        await ws.send_text(json.dumps({
-            "type": "history",
-            "messages": history_data,
-        }))
+        await ws.send_text(
+            json.dumps(
+                {
+                    "type": "history",
+                    "messages": history_data,
+                }
+            )
+        )
 
     # ---- Presence join ----
     join = PresenceEvent(
@@ -394,12 +414,19 @@ async def chat_ws(ws: WebSocket, room: str):
             # ---- Rate Limit: Message ----
             if not await rate_limiter.check_message_rate(user_id):
                 # Send rate limit warning to user
-                await ws.send_json({"type": "error", "message": "Rate limited: too many messages"})
+                await ws.send_json(
+                    {"type": "error", "message": "Rate limited: too many messages"}
+                )
                 continue
-            
+
             if not await rate_limiter.check_burst_rate(user_id):
                 # Send burst limit warning
-                await ws.send_json({"type": "error", "message": "Slow down! Too many messages too fast"})
+                await ws.send_json(
+                    {
+                        "type": "error",
+                        "message": "Slow down! Too many messages too fast",
+                    }
+                )
                 continue
 
             message = ChatMessageSchema(
@@ -418,7 +445,7 @@ async def chat_ws(ws: WebSocket, room: str):
                 username=message.username,
                 avatar_url=message.avatar_url,
             )
-            
+
             # Save to SQL
             async with async_session() as session:
                 session.add(db_msg)
@@ -430,7 +457,7 @@ async def chat_ws(ws: WebSocket, room: str):
                     room_id=room,
                     sender=username,
                     message=incoming.message,
-                    user_id=user_id
+                    user_id=user_id,
                 )
             except Exception as e:
                 logger.error(f"Failed to save message to DynamoDB: {e}")
@@ -464,7 +491,7 @@ async def notifications_ws(ws: WebSocket):
         token = auth.split(" ", 1)[1]
     if not token:
         token = ws.cookies.get(JWT_ACCESS_COOKIE_NAME)
-    
+
     if not token:
         logger.warning("Notification WebSocket connection rejected: no token")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)

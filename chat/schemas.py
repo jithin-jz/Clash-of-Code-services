@@ -4,9 +4,12 @@ from datetime import datetime
 import uuid
 from zoneinfo import ZoneInfo
 
+
 class BaseEvent(BaseModel):
     type: str
-    timestamp: str = Field(default_factory=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).isoformat())
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+    )
 
 
 class ChatMessage(BaseEvent):

@@ -4,7 +4,9 @@ import django.db.models.deletion
 
 def backfill_audit_snapshots(apps, _schema_editor):
     AdminAuditLog = apps.get_model("administration", "AdminAuditLog")
-    for log in AdminAuditLog.objects.select_related("admin", "target_user").all().iterator():
+    for log in (
+        AdminAuditLog.objects.select_related("admin", "target_user").all().iterator()
+    ):
         changed = False
         if not log.admin_username and log.admin_id:
             log.admin_username = log.admin.username
@@ -16,7 +18,9 @@ def backfill_audit_snapshots(apps, _schema_editor):
             log.target_email = log.target_user.email or ""
             changed = True
         if changed:
-            log.save(update_fields=["admin_username", "target_username", "target_email"])
+            log.save(
+                update_fields=["admin_username", "target_username", "target_email"]
+            )
 
 
 class Migration(migrations.Migration):
@@ -35,7 +39,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="adminauditlog",
             name="target_username",
-            field=models.CharField(blank=True, db_index=True, default="", max_length=150),
+            field=models.CharField(
+                blank=True, db_index=True, default="", max_length=150
+            ),
         ),
         migrations.AddField(
             model_name="adminauditlog",
@@ -55,7 +61,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="adminauditlog",
             name="request_id",
-            field=models.CharField(blank=True, db_index=True, default="", max_length=64),
+            field=models.CharField(
+                blank=True, db_index=True, default="", max_length=64
+            ),
         ),
         migrations.AlterField(
             model_name="adminauditlog",

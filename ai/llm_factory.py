@@ -5,6 +5,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class LLMFactory:
     @staticmethod
     def get_llm() -> BaseChatModel:
@@ -14,13 +15,13 @@ class LLMFactory:
         if not settings.GROQ_API_KEY:
             logger.error("Groq API Key missing.")
             raise ValueError("Groq API Key must be set.")
-            
+
         # logger.info("Initializing Groq LLM")
         return ChatOpenAI(
             api_key=settings.GROQ_API_KEY,
             base_url=settings.OPENAI_API_BASE,
-            model=settings.MODEL_NAME, # 'llama-3.3-70b-versatile'
-            temperature=0.7
+            model=settings.MODEL_NAME,  # 'llama-3.3-70b-versatile'
+            temperature=0.7,
         )
 
     @staticmethod

@@ -55,7 +55,9 @@ def send_fcm_push(user, title, body, data=None):
         return
 
     if not firebase_admin._apps:
-        logger.warning("Firebase not initialized; push delivery may fail for %s", user.username)
+        logger.warning(
+            "Firebase not initialized; push delivery may fail for %s", user.username
+        )
 
     try:
         message = messaging.MulticastMessage(

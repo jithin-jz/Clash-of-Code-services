@@ -176,9 +176,7 @@ class ImageUploadView(APIView):
             )
 
         safe_name = Path(file_obj.name).name
-        path = default_storage.save(
-            f"store/{safe_name}", ContentFile(file_obj.read())
-        )
+        path = default_storage.save(f"store/{safe_name}", ContentFile(file_obj.read()))
 
         url = default_storage.url(path)
 

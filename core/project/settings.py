@@ -48,7 +48,6 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "drf_spectacular",
-    
     "auth",
     "rewards",
     "users",
@@ -165,7 +164,6 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 WHITENOISE_MANIFEST_STRICT = False
-
 
 
 # Media files
@@ -321,9 +319,7 @@ JWT_ACCESS_TOKEN_LIFETIME = 60 * 60
 JWT_REFRESH_TOKEN_LIFETIME = 60 * 60 * 24 * 7
 
 # HttpOnly JWT cookie settings
-JWT_COOKIE_SECURE = _parse_bool(
-    os.getenv("JWT_COOKIE_SECURE"), default=not DEBUG
-)
+JWT_COOKIE_SECURE = _parse_bool(os.getenv("JWT_COOKIE_SECURE"), default=not DEBUG)
 JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
 JWT_ACCESS_COOKIE_NAME = os.getenv("JWT_ACCESS_COOKIE_NAME", "access_token")
 JWT_REFRESH_COOKIE_NAME = os.getenv("JWT_REFRESH_COOKIE_NAME", "refresh_token")

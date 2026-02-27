@@ -21,7 +21,7 @@ from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 # Local imports
 from config import settings
 from prompts import (
-    HINT_GENERATION_SYSTEM_PROMPT, 
+    HINT_GENERATION_SYSTEM_PROMPT,
     HINT_GENERATION_USER_TEMPLATE,
     CODE_REVIEW_SYSTEM_PROMPT,
     CODE_REVIEW_USER_TEMPLATE,
@@ -29,18 +29,15 @@ from prompts import (
 
 # Configure Logging
 from logger_config import setup_logging
+
 setup_logging()
 logger = logging.getLogger(__name__)
-
 
 
 load_dotenv()
 
 # Initialize App
-app = FastAPI(
-    title="AI Service",
-    version="1.0"
-)
+app = FastAPI(title="AI Service", version="1.0")
 
 # Configure CORS
 app.add_middleware(
@@ -51,18 +48,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Global Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 # Initialize RAG Components
 # Using local embedding model to save API costs
 _vector_db = None
+
 
 def get_vector_db():
     """Lazy initialization of the vector database to handle connection issues gracefully."""
@@ -71,18 +68,19 @@ def get_vector_db():
         try:
             logger.info("Initializing Chroma RAG components...")
             embeddings = HuggingFaceInferenceAPIEmbeddings(
-                api_key=settings.HUGGINGFACE_API_KEY, 
-                model_name=settings.EMBEDDING_MODEL
+                api_key=settings.HUGGINGFACE_API_KEY,
+                model_name=settings.EMBEDDING_MODEL,
             )
             # Connect to stand-alone ChromaDB server
             import chromadb
+
             _vector_db = Chroma(
                 client=chromadb.HttpClient(
-                    host=settings.CHROMA_SERVER_HOST, 
-                    port=settings.CHROMA_SERVER_HTTP_PORT
+                    host=settings.CHROMA_SERVER_HOST,
+                    port=settings.CHROMA_SERVER_HTTP_PORT,
                 ),
                 embedding_function=embeddings,
-                collection_name="challenges"
+                collection_name="challenges",
             )
             logger.info("Chroma RAG components initialized successfully.")
         except Exception as e:
@@ -98,6 +96,7 @@ class HintRequest(BaseModel):
     language: str = "python"
     hint_level: int = Field(default=1, ge=1, le=3)  # 1: Vague, 2: Moderate, 3: Specific
     user_xp: int = 0
+
 
 class AnalyzeRequest(BaseModel):
     user_code: str
@@ -211,7 +210,9 @@ async def fetch_challenge_context(challenge_slug: str):
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, timeout=5)
             if response.status_code != 200:
-                logger.error(f"Core service error: {response.status_code} - {response.text}")
+                logger.error(
+                    f"Core service error: {response.status_code} - {response.text}"
+                )
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Core service returned {response.status_code}",
@@ -222,12 +223,14 @@ async def fetch_challenge_context(challenge_slug: str):
         raise HTTPException(status_code=503, detail="Core service unavailable")
 
 
-async def get_rag_context(challenge_description: str, user_code: str, challenge_slug: str):
+async def get_rag_context(
+    challenge_description: str, user_code: str, challenge_slug: str
+):
     logger.info("Performing similarity search for RAG...")
     similar_docs = []
     try:
         query = f"Challenge: {challenge_description}\n\nUser Code: {user_code}"
-        
+
         vdb = get_vector_db()
         if vdb is None:
             logger.warning("Vector DB not available for similarity search.")
@@ -248,6 +251,7 @@ async def get_rag_context(challenge_description: str, user_code: str, challenge_
 
 
 # --- Routes ---
+
 
 @app.get("/health")
 def health():
@@ -272,7 +276,7 @@ async def generate_hint(
     ):
         logger.warning(f"Unauthorized hint request. Key: {x_internal_api_key}")
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
+
     if not settings.GROQ_API_KEY:
         logger.error("No LLM API Keys configured")
         raise HTTPException(status_code=500, detail="LLM API Key not configured")
@@ -282,8 +286,10 @@ async def generate_hint(
 
     # 2. Extract Data
     challenge_title = context_data.get("challenge_title", context_data.get("title", ""))
-    challenge_description = context_data.get("challenge_description", context_data.get("description", ""))
-    
+    challenge_description = context_data.get(
+        "challenge_description", context_data.get("description", "")
+    )
+
     # 3. RAG: Search for similar challenges
     rag_context = await get_rag_context(
         challenge_description=challenge_description,
@@ -292,47 +298,53 @@ async def generate_hint(
     )
 
     # 4. Construct Prompt
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", HINT_GENERATION_SYSTEM_PROMPT),
-        ("user", HINT_GENERATION_USER_TEMPLATE)
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", HINT_GENERATION_SYSTEM_PROMPT),
+            ("user", HINT_GENERATION_USER_TEMPLATE),
+        ]
+    )
 
     # 5. Call LLM
     try:
         logger.info(f"Initializing LLM via Factory (Provider: {settings.LLM_PROVIDER})")
         from llm_factory import LLMFactory
-        
+
         # Try primary provider
         try:
             llm = LLMFactory.get_llm()
             chain = prompt | llm | StrOutputParser()
-            hint = await chain.ainvoke({
-                "challenge_title": challenge_title,
-                "challenge_description": challenge_description,
-                "user_code": request.user_code,
-                "hint_level": request.hint_level,
-                "user_xp": request.user_xp,
-                "rag_context": rag_context
-            })
+            hint = await chain.ainvoke(
+                {
+                    "challenge_title": challenge_title,
+                    "challenge_description": challenge_description,
+                    "user_code": request.user_code,
+                    "hint_level": request.hint_level,
+                    "user_xp": request.user_xp,
+                    "rag_context": rag_context,
+                }
+            )
         except Exception as e:
             logger.warning(f"Primary LLM failed: {e}. Attempting fallback...")
             llm = LLMFactory.get_fallback_llm()
             chain = prompt | llm | StrOutputParser()
-            hint = await chain.ainvoke({
-                "challenge_title": challenge_title,
-                "challenge_description": challenge_description,
-                "user_code": request.user_code,
-                "hint_level": request.hint_level,
-                "user_xp": request.user_xp,
-                "rag_context": rag_context
-            })
-            
+            hint = await chain.ainvoke(
+                {
+                    "challenge_title": challenge_title,
+                    "challenge_description": challenge_description,
+                    "user_code": request.user_code,
+                    "hint_level": request.hint_level,
+                    "user_xp": request.user_xp,
+                    "rag_context": rag_context,
+                }
+            )
+
         safe_hint = sanitize_guidance_output(hint, mode="hint")
         logger.info("Hint generated successfully")
         return {"hint": safe_hint, "hint_level": request.hint_level, "max_hints": 3}
     except Exception as e:
-         logger.error(f"LLM Error (All providers failed): {e}", exc_info=True)
-         raise HTTPException(status_code=500, detail="Error generating hint")
+        logger.error(f"LLM Error (All providers failed): {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error generating hint")
 
 
 @app.post("/analyze")
@@ -360,7 +372,9 @@ async def analyze_code(
 
     context_data = await fetch_challenge_context(request.challenge_slug)
     challenge_title = context_data.get("challenge_title", context_data.get("title", ""))
-    challenge_description = context_data.get("challenge_description", context_data.get("description", ""))
+    challenge_description = context_data.get(
+        "challenge_description", context_data.get("description", "")
+    )
     initial_code = context_data.get("initial_code", "")
     test_code = context_data.get("test_code", "")
     rag_context = await get_rag_context(
@@ -369,10 +383,12 @@ async def analyze_code(
         challenge_slug=request.challenge_slug,
     )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", CODE_REVIEW_SYSTEM_PROMPT),
-        ("user", CODE_REVIEW_USER_TEMPLATE),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", CODE_REVIEW_SYSTEM_PROMPT),
+            ("user", CODE_REVIEW_USER_TEMPLATE),
+        ]
+    )
 
     try:
         from llm_factory import LLMFactory
@@ -380,26 +396,32 @@ async def analyze_code(
         try:
             llm = LLMFactory.get_llm()
             chain = prompt | llm | StrOutputParser()
-            review = await chain.ainvoke({
-                "challenge_title": challenge_title,
-                "challenge_description": challenge_description,
-                "initial_code": initial_code,
-                "user_code": request.user_code,
-                "test_code": test_code,
-                "rag_context": rag_context,
-            })
+            review = await chain.ainvoke(
+                {
+                    "challenge_title": challenge_title,
+                    "challenge_description": challenge_description,
+                    "initial_code": initial_code,
+                    "user_code": request.user_code,
+                    "test_code": test_code,
+                    "rag_context": rag_context,
+                }
+            )
         except Exception as e:
-            logger.warning(f"Primary LLM failed on analyze: {e}. Attempting fallback...")
+            logger.warning(
+                f"Primary LLM failed on analyze: {e}. Attempting fallback..."
+            )
             llm = LLMFactory.get_fallback_llm()
             chain = prompt | llm | StrOutputParser()
-            review = await chain.ainvoke({
-                "challenge_title": challenge_title,
-                "challenge_description": challenge_description,
-                "initial_code": initial_code,
-                "user_code": request.user_code,
-                "test_code": test_code,
-                "rag_context": rag_context,
-            })
+            review = await chain.ainvoke(
+                {
+                    "challenge_title": challenge_title,
+                    "challenge_description": challenge_description,
+                    "initial_code": initial_code,
+                    "user_code": request.user_code,
+                    "test_code": test_code,
+                    "rag_context": rag_context,
+                }
+            )
 
         safe_review = sanitize_guidance_output(review, mode="analyze")
         logger.info("AI code review generated successfully")

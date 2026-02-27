@@ -8,7 +8,12 @@ from django.db.models import Avg, Count, Sum
 from django.db.models.functions import TruncDay
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
 from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -140,8 +145,12 @@ class UserListView(APIView):
     @extend_schema(
         parameters=[
             OpenApiParameter("search", str, OpenApiParameter.QUERY),
-            OpenApiParameter("role", str, OpenApiParameter.QUERY, enum=["user", "staff", "superuser"]),
-            OpenApiParameter("status", str, OpenApiParameter.QUERY, enum=["active", "blocked"]),
+            OpenApiParameter(
+                "role", str, OpenApiParameter.QUERY, enum=["user", "staff", "superuser"]
+            ),
+            OpenApiParameter(
+                "status", str, OpenApiParameter.QUERY, enum=["active", "blocked"]
+            ),
             OpenApiParameter("page", int, OpenApiParameter.QUERY, default=1),
             OpenApiParameter("page_size", int, OpenApiParameter.QUERY, default=25),
         ],
@@ -226,7 +235,12 @@ class UserBlockToggleView(APIView):
             name="UserBlockRequest",
             fields={"reason": serializers.CharField(required=False)},
         ),
-        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
         description="Toggle a user's active status. Blocking a user prevents them from logging in.",
     )
     def post(self, request, username):
@@ -286,7 +300,12 @@ class UserDeleteView(APIView):
 
     @extend_schema(
         parameters=[OpenApiParameter("reason", str, OpenApiParameter.QUERY)],
-        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
         description="Permanently delete a user account. This action cannot be undone.",
     )
     def delete(self, request, username):
@@ -364,7 +383,9 @@ class ChallengeAnalyticsView(APIView):
                     "title": challenge.title,
                     "completions": completions,
                     "completion_rate": (
-                        (completions / total_attempts * 100) if total_attempts > 0 else 0
+                        (completions / total_attempts * 100)
+                        if total_attempts > 0
+                        else 0
                     ),
                     "avg_stars": avg_stars,
                     "is_personalized": challenge.created_for_user is not None,
@@ -433,7 +454,9 @@ class UserEngagementAnalyticsView(APIView):
         ]
 
         # 2. Active Users (last 24h)
-        active_24h = User.objects.filter(last_login__gte=now - timedelta(days=1)).count()
+        active_24h = User.objects.filter(
+            last_login__gte=now - timedelta(days=1)
+        ).count()
 
         # 3. Auth Provider Distribution
         auth_dist_qs = UserProfile.objects.values("provider").annotate(
@@ -485,7 +508,9 @@ class UltimateAnalyticsView(APIView):
         # 1. Overview Stats
         overview = {
             "total_users": User.objects.count(),
-            "active_24h": User.objects.filter(last_login__gte=now - timedelta(days=1)).count(),
+            "active_24h": User.objects.filter(
+                last_login__gte=now - timedelta(days=1)
+            ).count(),
             "total_challenges": Challenge.objects.count(),
             "store_catalog": StoreItem.objects.filter(is_active=True).count(),
         }
@@ -499,37 +524,52 @@ class UltimateAnalyticsView(APIView):
             .order_by("day")
         )
         growth_map = {item["day"].date(): item["count"] for item in growth_qs}
-        
+
         growth_trends = []
         for i in range(31):
             day = (thirty_ago + timedelta(days=i)).date()
             if day > now.date():
                 break
-            growth_trends.append({
-                "date": day.strftime("%Y-%m-%d"),
-                "count": growth_map.get(day, 0)
-            })
+            growth_trends.append(
+                {"date": day.strftime("%Y-%m-%d"), "count": growth_map.get(day, 0)}
+            )
 
         # 3. Economy Pulse
-        total_circulation_xp = UserProfile.objects.aggregate(total=Sum("xp"))["total"] or 0
+        total_circulation_xp = (
+            UserProfile.objects.aggregate(total=Sum("xp"))["total"] or 0
+        )
         store_items = StoreItem.objects.annotate(sales=Count("purchases"))
         total_revenue = sum(item.sales * item.cost for item in store_items)
-        
+
         economy_pulse = {
             "total_circulation_xp": total_circulation_xp,
             "total_store_revenue": total_revenue,
-            "avg_xp_per_user": (total_circulation_xp / overview["total_users"]) if overview["total_users"] > 0 else 0
+            "avg_xp_per_user": (
+                (total_circulation_xp / overview["total_users"])
+                if overview["total_users"] > 0
+                else 0
+            ),
         }
 
         # 4. Top Challenges (by completions)
-        progress_summary = UserProgress.objects.values("challenge_id").annotate(
-            completions=Count("id", filter=models.Q(status=UserProgress.Status.COMPLETED)),
-            avg_stars=Avg("stars", filter=models.Q(status=UserProgress.Status.COMPLETED)),
-        ).order_by("-completions")[:5]
-        
+        progress_summary = (
+            UserProgress.objects.values("challenge_id")
+            .annotate(
+                completions=Count(
+                    "id", filter=models.Q(status=UserProgress.Status.COMPLETED)
+                ),
+                avg_stars=Avg(
+                    "stars", filter=models.Q(status=UserProgress.Status.COMPLETED)
+                ),
+            )
+            .order_by("-completions")[:5]
+        )
+
         challenge_ids = [row["challenge_id"] for row in progress_summary]
-        challenges = {c.id: c.title for c in Challenge.objects.filter(id__in=challenge_ids)}
-        
+        challenges = {
+            c.id: c.title for c in Challenge.objects.filter(id__in=challenge_ids)
+        }
+
         top_challenges = [
             {
                 "title": challenges.get(row["challenge_id"], "Unknown"),
@@ -541,11 +581,7 @@ class UltimateAnalyticsView(APIView):
 
         # 5. Top Items (by revenue)
         item_stats = [
-            {
-                "name": item.name,
-                "revenue": item.sales * item.cost,
-                "sales": item.sales
-            }
+            {"name": item.name, "revenue": item.sales * item.cost, "sales": item.sales}
             for item in store_items
         ]
         top_items = sorted(item_stats, key=lambda x: x["revenue"], reverse=True)[:5]
@@ -556,7 +592,9 @@ class UltimateAnalyticsView(APIView):
             {
                 "username": p.user.username,
                 "xp": p.xp,
-                "followers": p.user.followers.count() if hasattr(p.user, "followers") else 0
+                "followers": (
+                    p.user.followers.count() if hasattr(p.user, "followers") else 0
+                ),
             }
             for p in top_profiles
         ]
@@ -645,7 +683,9 @@ class AdminAuditLogView(APIView):
             OpenApiParameter("admin", str, OpenApiParameter.QUERY),
             OpenApiParameter("target", str, OpenApiParameter.QUERY),
             OpenApiParameter("search", str, OpenApiParameter.QUERY),
-            OpenApiParameter("ordering", str, OpenApiParameter.QUERY, default="-timestamp"),
+            OpenApiParameter(
+                "ordering", str, OpenApiParameter.QUERY, default="-timestamp"
+            ),
             OpenApiParameter("date_from", str, OpenApiParameter.QUERY),
             OpenApiParameter("date_to", str, OpenApiParameter.QUERY),
             OpenApiParameter("page", int, OpenApiParameter.QUERY, default=1),

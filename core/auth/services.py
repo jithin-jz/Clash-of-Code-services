@@ -298,7 +298,9 @@ class AuthService:
         )
 
         if not delivery_ok:
-            raise ValidationError("Failed to deliver OTP email. Please try again later.")
+            raise ValidationError(
+                "Failed to deliver OTP email. Please try again later."
+            )
 
         return {"ok": True}
 
@@ -323,8 +325,7 @@ class AuthService:
             EmailOTP.objects.filter(
                 email__iexact=email,
                 created_at__gte=expiry_time,
-            )
-            .order_by("-created_at")[:5]
+            ).order_by("-created_at")[:5]
         )
         otp_record = next(
             (

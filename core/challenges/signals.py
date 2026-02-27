@@ -6,6 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 @receiver(post_save, sender=UserProgress)
 def auto_generate_certificate(sender, instance, created, **kwargs):
     """

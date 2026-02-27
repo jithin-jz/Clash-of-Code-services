@@ -12,6 +12,7 @@ SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "dummy")
 TABLE_NAME = "ChatMessages"
 logger = logging.getLogger(__name__)
 
+
 class DynamoClient:
     def __init__(self):
         self.session = aioboto3.Session()
@@ -21,7 +22,7 @@ class DynamoClient:
             "aws_access_key_id": ACCESS_KEY,
             "aws_secret_access_key": SECRET_KEY,
             "region_name": REGION_NAME,
-            "endpoint_url": self.endpoint_url
+            "endpoint_url": self.endpoint_url,
         }
 
     async def create_table_if_not_exists(self):
@@ -32,28 +33,34 @@ class DynamoClient:
                     await dynamo.create_table(
                         TableName=TABLE_NAME,
                         KeySchema=[
-                            {'AttributeName': 'room_id', 'KeyType': 'HASH'},
-                            {'AttributeName': 'timestamp', 'KeyType': 'RANGE'}
+                            {"AttributeName": "room_id", "KeyType": "HASH"},
+                            {"AttributeName": "timestamp", "KeyType": "RANGE"},
                         ],
                         AttributeDefinitions=[
-                            {'AttributeName': 'room_id', 'AttributeType': 'S'},
-                            {'AttributeName': 'timestamp', 'AttributeType': 'S'}
+                            {"AttributeName": "room_id", "AttributeType": "S"},
+                            {"AttributeName": "timestamp", "AttributeType": "S"},
                         ],
-                        ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
+                        ProvisionedThroughput={
+                            "ReadCapacityUnits": 5,
+                            "WriteCapacityUnits": 5,
+                        },
                     )
                     logger.info("Table %s created.", TABLE_NAME)
                 if "UserActivity" not in tables:
                     await dynamo.create_table(
                         TableName="UserActivity",
                         KeySchema=[
-                            {'AttributeName': 'user_id', 'KeyType': 'HASH'},
-                            {'AttributeName': 'date', 'KeyType': 'RANGE'}
+                            {"AttributeName": "user_id", "KeyType": "HASH"},
+                            {"AttributeName": "date", "KeyType": "RANGE"},
                         ],
                         AttributeDefinitions=[
-                            {'AttributeName': 'user_id', 'AttributeType': 'S'},
-                            {'AttributeName': 'date', 'AttributeType': 'S'}
+                            {"AttributeName": "user_id", "AttributeType": "S"},
+                            {"AttributeName": "date", "AttributeType": "S"},
                         ],
-                        ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
+                        ProvisionedThroughput={
+                            "ReadCapacityUnits": 5,
+                            "WriteCapacityUnits": 5,
+                        },
                     )
                     logger.info("Table UserActivity created.")
         except ClientError as e:
@@ -65,27 +72,29 @@ class DynamoClient:
         except Exception as e:
             logger.exception("Error creating table: %s", e)
 
-    async def save_message(self, room_id: str, sender: str, message: str, user_id: str = None):
+    async def save_message(
+        self, room_id: str, sender: str, message: str, user_id: str = None
+    ):
         try:
             async with self.session.resource("dynamodb", **self.creds) as dynamo:
                 table = await dynamo.Table(TABLE_NAME)
                 await table.put_item(
                     Item={
-                        'room_id': room_id,
-                        'timestamp': datetime.utcnow().isoformat(),
-                        'sender': sender,
-                        'content': message
+                        "room_id": room_id,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "sender": sender,
+                        "content": message,
                     }
                 )
-                
+
                 # Log contribution if user_id provided
                 if user_id:
                     activity_table = await dynamo.Table("UserActivity")
-                    today = datetime.utcnow().strftime('%Y-%m-%d')
+                    today = datetime.utcnow().strftime("%Y-%m-%d")
                     await activity_table.update_item(
-                        Key={'user_id': str(user_id), 'date': today},
+                        Key={"user_id": str(user_id), "date": today},
                         UpdateExpression="ADD contribution_count :inc",
-                        ExpressionAttributeValues={':inc': 1}
+                        ExpressionAttributeValues={":inc": 1},
                     )
         except Exception as e:
             logger.exception("Error saving message to DynamoDB: %s", e)
@@ -95,13 +104,16 @@ class DynamoClient:
             async with self.session.resource("dynamodb", **self.creds) as dynamo:
                 table = await dynamo.Table(TABLE_NAME)
                 response = await table.query(
-                    KeyConditionExpression=aioboto3.dynamodb.conditions.Key('room_id').eq(room_id),
-                    ScanIndexForward=False, # Get latest first
-                    Limit=limit
+                    KeyConditionExpression=aioboto3.dynamodb.conditions.Key(
+                        "room_id"
+                    ).eq(room_id),
+                    ScanIndexForward=False,  # Get latest first
+                    Limit=limit,
                 )
-                return response.get('Items', [])
+                return response.get("Items", [])
         except Exception as e:
             logger.exception("Error fetching messages from DynamoDB: %s", e)
             return []
+
 
 dynamo_client = DynamoClient()
