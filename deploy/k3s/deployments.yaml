@@ -15,6 +15,19 @@ spec:
     spec:
       securityContext:
         fsGroup: 10001
+      initContainers:
+        - name: collectstatic
+          image: ghcr.io/jithin-jz/clash-of-code-services-core:latest
+          imagePullPolicy: Always
+          command: ["python", "manage.py", "collectstatic", "--noinput"]
+          envFrom:
+            - configMapRef:
+                name: coc-config
+            - secretRef:
+                name: coc-secrets
+          volumeMounts:
+            - name: static-data
+              mountPath: /app/staticfiles
       containers:
         - name: core
           image: ghcr.io/jithin-jz/clash-of-code-services-core:latest
