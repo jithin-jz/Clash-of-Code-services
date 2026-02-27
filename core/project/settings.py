@@ -166,10 +166,6 @@ STATIC_URL = "static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 WHITENOISE_MANIFEST_STRICT = False
 
-import django
-STATICFILES_DIRS = [
-    os.path.join(os.path.dirname(django.__file__), 'contrib/admin/static'),
-]
 
 
 # Media files
@@ -195,7 +191,7 @@ CLOUDINARY_STORAGE = {
 
 STORAGES = {
     "default": {"BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage"},
-    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 
 # Backend URL (for absolute media paths)
