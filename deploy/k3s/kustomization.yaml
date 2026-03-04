@@ -6,6 +6,7 @@ resources:
   - configmaps.yaml
   - services.yaml
   - deployments.yaml
+  - redis.yaml
   - pvc.yaml
   - ingress.yaml
   - middlewares.yaml
