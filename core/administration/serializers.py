@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import AdminAuditLog
+from .models import AdminAuditLog, AdminNote, AdminReport
 
 
 class AdminStatsSerializer(serializers.Serializer):
@@ -34,11 +34,58 @@ class AdminAuditLogSerializer(serializers.ModelSerializer):
         )
 
 
+class AdminNoteSerializer(serializers.ModelSerializer):
+    admin = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminNote
+        fields = ["id", "admin", "body", "is_pinned", "created_at", "updated_at"]
+
+    def get_admin(self, obj):
+        return obj.admin.username
+
+
+class AdminReportSerializer(serializers.ModelSerializer):
+    target = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+    resolved_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminReport
+        fields = [
+            "id",
+            "title",
+            "summary",
+            "category",
+            "priority",
+            "status",
+            "context",
+            "target",
+            "created_by",
+            "resolved_by",
+            "created_at",
+            "updated_at",
+            "resolved_at",
+        ]
+
+    def get_target(self, obj):
+        return obj.target_user.username
+
+    def get_created_by(self, obj):
+        return obj.created_by.username if obj.created_by else "System"
+
+    def get_resolved_by(self, obj):
+        return obj.resolved_by.username if obj.resolved_by else None
+
+
 class ChallengeAnalyticsSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     title = serializers.CharField()
+    attempts = serializers.IntegerField()
     completions = serializers.IntegerField()
     completion_rate = serializers.FloatField()
+    abandonment_rate = serializers.FloatField()
+    average_time_seconds = serializers.FloatField()
     avg_stars = serializers.FloatField()
     is_personalized = serializers.BooleanField()
 
@@ -78,3 +125,4 @@ class UltimateAnalyticsSerializer(serializers.Serializer):
     top_challenges = serializers.ListField(child=serializers.DictField())
     top_items = serializers.ListField(child=serializers.DictField())
     community_leaders = serializers.ListField(child=serializers.DictField())
+    system_health = serializers.DictField(required=False)

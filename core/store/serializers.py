@@ -17,6 +17,8 @@ class StoreItemSerializer(serializers.ModelSerializer):
             "category",
             "image",
             "item_data",
+            "is_active",
+            "featured",
             "is_owned",
         ]
 
