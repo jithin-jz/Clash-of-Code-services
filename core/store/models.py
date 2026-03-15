@@ -29,6 +29,7 @@ class StoreItem(models.Model):
         help_text="JSON data for functional items (e.g., theme_key)",
     )
     is_active = models.BooleanField(default=True)
+    featured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
