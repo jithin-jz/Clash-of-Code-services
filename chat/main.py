@@ -5,6 +5,7 @@ import redis.asyncio as redis
 from dotenv import load_dotenv
 from typing import Dict, List
 from sqlmodel import select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.orm import sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
@@ -436,12 +437,11 @@ async def chat_ws(ws: WebSocket, room: str):
                     logger.error(f"Failed to delete message in DynamoDB: {e}")
                 
                 try:
-                    from sqlalchemy import delete
                     from datetime import datetime
                     target_dt = datetime.fromisoformat(incoming.target_timestamp)
                     async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
                     async with async_session_factory() as session:
-                        stmt = delete(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
+                        stmt = sa_delete(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
                         await session.execute(stmt)
                         await session.commit()
                 except Exception as e:
@@ -466,7 +466,6 @@ async def chat_ws(ws: WebSocket, room: str):
                     logger.error(f"Failed to edit message in DynamoDB: {e}")
                 
                 try:
-                    from sqlmodel import select
                     from datetime import datetime
                     target_dt = datetime.fromisoformat(incoming.target_timestamp)
                     async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
