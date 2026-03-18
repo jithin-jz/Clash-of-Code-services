@@ -32,4 +32,6 @@ class PresenceEvent(BaseEvent):
 
 
 class IncomingMessage(BaseModel):
-    message: str = Field(min_length=1, max_length=1000)
+    action: Literal["send", "edit", "delete"] = "send"
+    target_timestamp: Optional[str] = None
+    message: Optional[str] = Field(None, max_length=1000)

@@ -429,6 +429,39 @@ async def chat_ws(ws: WebSocket, room: str):
                 )
                 continue
 
+            if incoming.action == "delete" and incoming.target_timestamp:
+                try:
+                    await dynamo_client.delete_message(room_id=room, timestamp=incoming.target_timestamp)
+                except Exception as e:
+                    logger.error(f"Failed to delete message in DynamoDB: {e}")
+                await redis_client.publish(
+                    channel_key(room),
+                    json.dumps({
+                        "type": "chat_delete",
+                        "timestamp": incoming.target_timestamp,
+                        "user_id": user_id,
+                        "room": room
+                    })
+                )
+                continue
+
+            if incoming.action == "edit" and incoming.target_timestamp and incoming.message:
+                try:
+                    await dynamo_client.edit_message(room_id=room, timestamp=incoming.target_timestamp, user_id=user_id, new_message=incoming.message)
+                except Exception as e:
+                    logger.error(f"Failed to edit message in DynamoDB: {e}")
+                await redis_client.publish(
+                    channel_key(room),
+                    json.dumps({
+                        "type": "chat_edit",
+                        "timestamp": incoming.target_timestamp,
+                        "message": incoming.message,
+                        "user_id": user_id,
+                        "room": room
+                    })
+                )
+                continue
+
             message = ChatMessageSchema(
                 room=room,
                 message=incoming.message,
