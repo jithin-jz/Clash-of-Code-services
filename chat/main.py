@@ -436,7 +436,11 @@ async def chat_ws(ws: WebSocket, room: str):
                     logger.error(f"Failed to delete message in DynamoDB: {e}")
                 
                 try:
-                    async with async_session() as session:
+                    from sqlalchemy.orm import sessionmaker
+                    from sqlmodel.ext.asyncio.session import AsyncSession
+                    from database import engine
+                    async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                    async with async_session_factory() as session:
                         from sqlalchemy import delete
                         from dateutil.parser import parse
                         target_dt = parse(incoming.target_timestamp)
@@ -464,7 +468,11 @@ async def chat_ws(ws: WebSocket, room: str):
                     logger.error(f"Failed to edit message in DynamoDB: {e}")
                 
                 try:
-                    async with async_session() as session:
+                    from sqlalchemy.orm import sessionmaker
+                    from sqlmodel.ext.asyncio.session import AsyncSession
+                    from database import engine
+                    async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                    async with async_session_factory() as session:
                         from sqlmodel import select
                         from dateutil.parser import parse
                         target_dt = parse(incoming.target_timestamp)
