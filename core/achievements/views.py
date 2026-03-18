@@ -30,6 +30,6 @@ class UserAchievementListView(generics.ListAPIView):
 
     def get_queryset(self):
         username = self.kwargs.get("username")
-        return UserAchievement.objects.filter(
-            user__username=username
-        ).select_related("achievement")
+        return UserAchievement.objects.filter(user__username=username).select_related(
+            "achievement"
+        )

@@ -77,13 +77,7 @@ async def get_message_history(
     offset: int = 0,
 ):
     """Get paginated message history for a room."""
-    token = None
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.lower().startswith("bearer "):
-        token = auth_header.split(" ", 1)[1]
-    if not token:
-        token = request.cookies.get(JWT_ACCESS_COOKIE_NAME)
-    # Verify token
+    token = get_token(request)
     payload = verify_jwt(token or "")
     if not payload:
         return JSONResponse(
@@ -162,7 +156,19 @@ async def get_message_history(
 # --------------------------------------------------
 
 
+def get_token(request: Request | WebSocket) -> str | None:
+    token = None
+    auth = request.headers.get("authorization")
+    if auth and auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1]
+    if not token:
+        token = request.cookies.get(JWT_ACCESS_COOKIE_NAME)
+    return token
+
+
 def verify_jwt(token: str) -> dict | None:
+    if not token:
+        return None
     try:
         payload = jwt.decode(
             token,
@@ -170,9 +176,7 @@ def verify_jwt(token: str) -> dict | None:
             algorithms=[ALGORITHM],
             options={"require": ["exp"]},
         )
-        if payload.get("type") != "access":
-            return None
-        if "user_id" not in payload:
+        if payload.get("type") != "access" or "user_id" not in payload:
             return None
         return payload
     except jwt.PyJWTError:
@@ -330,15 +334,7 @@ async def chat_ws(ws: WebSocket, room: str):
         return
 
     # ---- Auth ----
-    token = None
-
-    # Fallback to header (for non-browser clients)
-    auth = ws.headers.get("authorization")
-    if auth and auth.startswith("Bearer "):
-        token = auth.split(" ", 1)[1]
-    if not token:
-        token = ws.cookies.get(JWT_ACCESS_COOKIE_NAME)
-
+    token = get_token(ws)
     if not token:
         logger.warning(f"WebSocket connection rejected: no token (room={room})")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -408,11 +404,15 @@ async def chat_ws(ws: WebSocket, room: str):
         pinned = await redis_client.get(pin_key)
         if pinned:
             pin_data = json.loads(pinned)
-            await ws.send_text(json.dumps({
-                "type": "chat_pin",
-                **pin_data,
-                "room": room,
-            }))
+            await ws.send_text(
+                json.dumps(
+                    {
+                        "type": "chat_pin",
+                        **pin_data,
+                        "room": room,
+                    }
+                )
+            )
     except Exception:
         pass
 
@@ -453,16 +453,25 @@ async def chat_ws(ws: WebSocket, room: str):
 
             if incoming.action == "delete" and incoming.target_timestamp:
                 try:
-                    await dynamo_client.delete_message(room_id=room, timestamp=incoming.target_timestamp)
+                    await dynamo_client.delete_message(
+                        room_id=room, timestamp=incoming.target_timestamp
+                    )
                 except Exception as e:
                     logger.error(f"Failed to delete message in DynamoDB: {e}")
-                
+
                 try:
                     from datetime import datetime
+
                     target_dt = datetime.fromisoformat(incoming.target_timestamp)
-                    async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                    async_session_factory = sessionmaker(
+                        engine, class_=AsyncSession, expire_on_commit=False
+                    )
                     async with async_session_factory() as session:
-                        stmt = sa_delete(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
+                        stmt = sa_delete(ChatMessage).where(
+                            ChatMessage.room == room,
+                            ChatMessage.user_id == user_id,
+                            ChatMessage.timestamp == target_dt,
+                        )
                         await session.execute(stmt)
                         await session.commit()
                 except Exception as e:
@@ -471,27 +480,45 @@ async def chat_ws(ws: WebSocket, room: str):
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps({
-                        "type": "chat_delete",
-                        "timestamp": incoming.target_timestamp,
-                        "user_id": user_id,
-                        "room": room
-                    })
+                    json.dumps(
+                        {
+                            "type": "chat_delete",
+                            "timestamp": incoming.target_timestamp,
+                            "user_id": user_id,
+                            "room": room,
+                        }
+                    ),
                 )
                 continue
 
-            if incoming.action == "edit" and incoming.target_timestamp and incoming.message:
+            if (
+                incoming.action == "edit"
+                and incoming.target_timestamp
+                and incoming.message
+            ):
                 try:
-                    await dynamo_client.edit_message(room_id=room, timestamp=incoming.target_timestamp, user_id=user_id, new_message=incoming.message)
+                    await dynamo_client.edit_message(
+                        room_id=room,
+                        timestamp=incoming.target_timestamp,
+                        user_id=user_id,
+                        new_message=incoming.message,
+                    )
                 except Exception as e:
                     logger.error(f"Failed to edit message in DynamoDB: {e}")
-                
+
                 try:
                     from datetime import datetime
+
                     target_dt = datetime.fromisoformat(incoming.target_timestamp)
-                    async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                    async_session_factory = sessionmaker(
+                        engine, class_=AsyncSession, expire_on_commit=False
+                    )
                     async with async_session_factory() as session:
-                        statement = select(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
+                        statement = select(ChatMessage).where(
+                            ChatMessage.room == room,
+                            ChatMessage.user_id == user_id,
+                            ChatMessage.timestamp == target_dt,
+                        )
                         result = await session.execute(statement)
                         msg_to_edit = result.scalars().first()
                         if msg_to_edit:
@@ -503,13 +530,15 @@ async def chat_ws(ws: WebSocket, room: str):
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps({
-                        "type": "chat_edit",
-                        "timestamp": incoming.target_timestamp,
-                        "message": incoming.message,
-                        "user_id": user_id,
-                        "room": room
-                    })
+                    json.dumps(
+                        {
+                            "type": "chat_edit",
+                            "timestamp": incoming.target_timestamp,
+                            "message": incoming.message,
+                            "user_id": user_id,
+                            "room": room,
+                        }
+                    ),
                 )
                 continue
 
@@ -517,15 +546,21 @@ async def chat_ws(ws: WebSocket, room: str):
             if incoming.action == "typing":
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps({
-                        "type": "typing",
-                        "user_id": user_id,
-                        "username": username,
-                    })
+                    json.dumps(
+                        {
+                            "type": "typing",
+                            "user_id": user_id,
+                            "username": username,
+                        }
+                    ),
                 )
                 continue
 
-            if incoming.action == "react" and incoming.target_timestamp and incoming.emoji:
+            if (
+                incoming.action == "react"
+                and incoming.target_timestamp
+                and incoming.emoji
+            ):
                 # 1. Update DynamoDB
                 try:
                     await dynamo_client.toggle_reaction(
@@ -540,17 +575,24 @@ async def chat_ws(ws: WebSocket, room: str):
                 # 2. Update SQL
                 try:
                     from datetime import datetime
+
                     target_dt = datetime.fromisoformat(incoming.target_timestamp)
-                    async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                    async_session_factory = sessionmaker(
+                        engine, class_=AsyncSession, expire_on_commit=False
+                    )
                     async with async_session_factory() as session:
-                        statement = select(ChatMessage).where(ChatMessage.room == room, ChatMessage.timestamp == target_dt)
+                        statement = select(ChatMessage).where(
+                            ChatMessage.room == room, ChatMessage.timestamp == target_dt
+                        )
                         result = await session.execute(statement)
                         db_msg = result.scalars().first()
                         if db_msg:
                             # Re-initialize to ensure it's not a reference (though with JSON it's usually fine)
-                            reactions = db_msg.reactions.copy() if db_msg.reactions else {}
+                            reactions = (
+                                db_msg.reactions.copy() if db_msg.reactions else {}
+                            )
                             users = reactions.get(incoming.emoji, [])
-                            
+
                             if username in users:
                                 users.remove(username)
                                 if not users:
@@ -560,7 +602,7 @@ async def chat_ws(ws: WebSocket, room: str):
                             else:
                                 users.append(username)
                                 reactions[incoming.emoji] = users
-                            
+
                             db_msg.reactions = reactions
                             session.add(db_msg)
                             await session.commit()
@@ -570,14 +612,16 @@ async def chat_ws(ws: WebSocket, room: str):
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps({
-                        "type": "chat_react",
-                        "timestamp": incoming.target_timestamp,
-                        "emoji": incoming.emoji,
-                        "username": username,
-                        "user_id": user_id,
-                        "room": room,
-                    })
+                    json.dumps(
+                        {
+                            "type": "chat_react",
+                            "timestamp": incoming.target_timestamp,
+                            "emoji": incoming.emoji,
+                            "username": username,
+                            "user_id": user_id,
+                            "room": room,
+                        }
+                    ),
                 )
                 continue
 
@@ -585,23 +629,32 @@ async def chat_ws(ws: WebSocket, room: str):
             if incoming.action in ("pin", "unpin") and incoming.target_timestamp:
                 pin_key = f"chat:pinned:{room}"
                 if incoming.action == "pin":
-                    await redis_client.set(pin_key, json.dumps({
-                        "timestamp": incoming.target_timestamp,
-                        "pinned_by": username,
-                        "message": incoming.message or "",
-                    }))
+                    await redis_client.set(
+                        pin_key,
+                        json.dumps(
+                            {
+                                "timestamp": incoming.target_timestamp,
+                                "pinned_by": username,
+                                "message": incoming.message or "",
+                            }
+                        ),
+                    )
                 else:
                     await redis_client.delete(pin_key)
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps({
-                        "type": "chat_pin" if incoming.action == "pin" else "chat_unpin",
-                        "timestamp": incoming.target_timestamp,
-                        "pinned_by": username,
-                        "message": incoming.message or "",
-                        "room": room,
-                    })
+                    json.dumps(
+                        {
+                            "type": (
+                                "chat_pin" if incoming.action == "pin" else "chat_unpin"
+                            ),
+                            "timestamp": incoming.target_timestamp,
+                            "pinned_by": username,
+                            "message": incoming.message or "",
+                            "room": room,
+                        }
+                    ),
                 )
                 continue
 
@@ -618,16 +671,22 @@ async def chat_ws(ws: WebSocket, room: str):
             mentions = re.findall(r"@(\w+)", message.message)
             if mentions:
                 for mention in set(mentions):
-                    # Publish mention event. 
-                    await redis_client.publish("global_mentions", json.dumps({
-                        "type": "mention",
-                        "target_username": mention,
-                        "sender": username,
-                        "room": room,
-                        "message": message.message[:100],
-                    }))
+                    # Publish mention event.
+                    await redis_client.publish(
+                        "global_mentions",
+                        json.dumps(
+                            {
+                                "type": "mention",
+                                "target_username": mention,
+                                "sender": username,
+                                "room": room,
+                                "message": message.message[:100],
+                            }
+                        ),
+                    )
 
             from datetime import datetime
+
             msg_dt = datetime.fromisoformat(message.timestamp)
 
             db_msg = ChatMessage(
@@ -676,17 +735,10 @@ async def chat_ws(ws: WebSocket, room: str):
         await redis_client.publish(channel_key(room), leave.model_dump_json())
 
 
-
 @app.websocket("/ws/notifications")
 async def notifications_ws(ws: WebSocket):
     # ---- Auth ----
-    token = None
-    auth = ws.headers.get("authorization")
-    if auth and auth.startswith("Bearer "):
-        token = auth.split(" ", 1)[1]
-    if not token:
-        token = ws.cookies.get(JWT_ACCESS_COOKIE_NAME)
-
+    token = get_token(ws)
     if not token:
         logger.warning("Notification WebSocket connection rejected: no token")
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
