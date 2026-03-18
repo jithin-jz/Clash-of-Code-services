@@ -32,6 +32,7 @@ class PresenceEvent(BaseEvent):
 
 
 class IncomingMessage(BaseModel):
-    action: Literal["send", "edit", "delete"] = "send"
+    action: Literal["send", "edit", "delete", "typing", "react", "pin", "unpin"] = "send"
     target_timestamp: Optional[str] = None
     message: Optional[str] = Field(None, max_length=1000)
+    emoji: Optional[str] = None  # For reactions

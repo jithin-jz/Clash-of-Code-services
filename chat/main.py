@@ -395,6 +395,20 @@ async def chat_ws(ws: WebSocket, room: str):
             )
         )
 
+    # ---- Send pinned message if exists ----
+    try:
+        pin_key = f"chat:pinned:{room}"
+        pinned = await redis_client.get(pin_key)
+        if pinned:
+            pin_data = json.loads(pinned)
+            await ws.send_text(json.dumps({
+                "type": "chat_pin",
+                **pin_data,
+                "room": room,
+            }))
+    except Exception:
+        pass
+
     # ---- Presence join ----
     join = PresenceEvent(
         event="join",
@@ -488,6 +502,67 @@ async def chat_ws(ws: WebSocket, room: str):
                         "message": incoming.message,
                         "user_id": user_id,
                         "room": room
+                    })
+                )
+                continue
+
+            # ---- Typing Indicator ----
+            if incoming.action == "typing":
+                await redis_client.publish(
+                    channel_key(room),
+                    json.dumps({
+                        "type": "typing",
+                        "user_id": user_id,
+                        "username": username,
+                    })
+                )
+                continue
+
+            # ---- Emoji Reaction ----
+            if incoming.action == "react" and incoming.target_timestamp and incoming.emoji:
+                try:
+                    await dynamo_client.toggle_reaction(
+                        room_id=room,
+                        timestamp=incoming.target_timestamp,
+                        username=username,
+                        emoji=incoming.emoji,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to toggle reaction in DynamoDB: {e}")
+
+                await redis_client.publish(
+                    channel_key(room),
+                    json.dumps({
+                        "type": "chat_react",
+                        "timestamp": incoming.target_timestamp,
+                        "emoji": incoming.emoji,
+                        "username": username,
+                        "user_id": user_id,
+                        "room": room,
+                    })
+                )
+                continue
+
+            # ---- Pin / Unpin Message ----
+            if incoming.action in ("pin", "unpin") and incoming.target_timestamp:
+                pin_key = f"chat:pinned:{room}"
+                if incoming.action == "pin":
+                    await redis_client.set(pin_key, json.dumps({
+                        "timestamp": incoming.target_timestamp,
+                        "pinned_by": username,
+                        "message": incoming.message or "",
+                    }))
+                else:
+                    await redis_client.delete(pin_key)
+
+                await redis_client.publish(
+                    channel_key(room),
+                    json.dumps({
+                        "type": "chat_pin" if incoming.action == "pin" else "chat_unpin",
+                        "timestamp": incoming.target_timestamp,
+                        "pinned_by": username,
+                        "message": incoming.message or "",
+                        "room": room,
                     })
                 )
                 continue
