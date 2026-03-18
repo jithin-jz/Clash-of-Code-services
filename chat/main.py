@@ -434,6 +434,18 @@ async def chat_ws(ws: WebSocket, room: str):
                     await dynamo_client.delete_message(room_id=room, timestamp=incoming.target_timestamp)
                 except Exception as e:
                     logger.error(f"Failed to delete message in DynamoDB: {e}")
+                
+                try:
+                    async with async_session() as session:
+                        from sqlalchemy import delete
+                        from dateutil.parser import parse
+                        target_dt = parse(incoming.target_timestamp)
+                        stmt = delete(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
+                        await session.execute(stmt)
+                        await session.commit()
+                except Exception as e:
+                    pass
+
                 await redis_client.publish(
                     channel_key(room),
                     json.dumps({
@@ -450,6 +462,21 @@ async def chat_ws(ws: WebSocket, room: str):
                     await dynamo_client.edit_message(room_id=room, timestamp=incoming.target_timestamp, user_id=user_id, new_message=incoming.message)
                 except Exception as e:
                     logger.error(f"Failed to edit message in DynamoDB: {e}")
+                
+                try:
+                    async with async_session() as session:
+                        from sqlmodel import select
+                        from dateutil.parser import parse
+                        target_dt = parse(incoming.target_timestamp)
+                        statement = select(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
+                        result = await session.execute(statement)
+                        msg_to_edit = result.scalars().first()
+                        if msg_to_edit:
+                            msg_to_edit.message = incoming.message
+                            await session.commit()
+                except Exception as e:
+                    pass
+
                 await redis_client.publish(
                     channel_key(room),
                     json.dumps({
