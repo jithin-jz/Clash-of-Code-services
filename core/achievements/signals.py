@@ -39,32 +39,36 @@ def check_challenge_achievements(sender, instance, **kwargs):
 
     user = instance.user
 
-    # First Blood — complete any challenge
-    completed_count = UserProgress.objects.filter(
-        user=user, status="COMPLETED"
-    ).count()
+    try:
+        # First Blood — complete any challenge
+        completed_count = UserProgress.objects.filter(
+            user=user, status="COMPLETED"
+        ).count()
 
-    if completed_count >= 1:
-        _grant(user, "first-blood")
+        if completed_count >= 1:
+            _grant(user, "first-blood")
 
-    if completed_count >= 5:
-        _grant(user, "rising-coder")
+        if completed_count >= 5:
+            _grant(user, "rising-coder")
 
-    if completed_count >= 10:
-        _grant(user, "challenge-veteran")
+        if completed_count >= 10:
+            _grant(user, "challenge-veteran")
 
-    if completed_count >= 25:
-        _grant(user, "legend")
+        if completed_count >= 25:
+            _grant(user, "legend")
 
-    # Speed Demon — completed in under 2 minutes
-    if instance.started_at and instance.completed_at:
-        elapsed = (instance.completed_at - instance.started_at).total_seconds()
-        if elapsed < 120:
-            _grant(user, "speed-demon")
+        # Speed Demon — completed in under 2 minutes
+        if instance.started_at and instance.completed_at:
+            elapsed = (instance.completed_at - instance.started_at).total_seconds()
+            if elapsed < 120:
+                _grant(user, "speed-demon")
 
-    # Perfect Score — 3 stars
-    if instance.stars == 3:
-        _grant(user, "perfectionist")
+        # Perfect Score — 3 stars
+        if instance.stars == 3:
+            _grant(user, "perfectionist")
+    except Exception as e:
+        import logging
+        logging.getLogger("achievements").warning(f"Error checking challenge achievements: {e}")
 
 
 # ──── Streak-based achievements ────
@@ -74,11 +78,15 @@ def check_streak_achievements(sender, instance, **kwargs):
     _ = sender, kwargs
     user = instance.user
 
-    if instance.streak_day >= 3:
-        _grant(user, "streak-starter")
+    try:
+        if instance.streak_day >= 3:
+            _grant(user, "streak-starter")
 
-    if instance.streak_day >= 7:
-        _grant(user, "streak-master")
+        if instance.streak_day >= 7:
+            _grant(user, "streak-master")
+    except Exception as e:
+        import logging
+        logging.getLogger("achievements").warning(f"Error checking streak achievements: {e}")
 
 
 # ──── Social achievements ────
@@ -88,9 +96,13 @@ def check_social_achievements(sender, instance, **kwargs):
     _ = sender, kwargs
     follower = instance.follower
 
-    following_count = UserFollow.objects.filter(follower=follower).count()
-    if following_count >= 1:
-        _grant(follower, "socializer")
+    try:
+        following_count = UserFollow.objects.filter(follower=follower).count()
+        if following_count >= 1:
+            _grant(follower, "socializer")
 
-    if following_count >= 10:
-        _grant(follower, "networker")
+        if following_count >= 10:
+            _grant(follower, "networker")
+    except Exception as e:
+        import logging
+        logging.getLogger("achievements").warning(f"Error checking social achievements: {e}")
