@@ -525,8 +525,8 @@ async def chat_ws(ws: WebSocket, room: str):
                 )
                 continue
 
-            # ---- Emoji Reaction ----
             if incoming.action == "react" and incoming.target_timestamp and incoming.emoji:
+                # 1. Update DynamoDB
                 try:
                     await dynamo_client.toggle_reaction(
                         room_id=room,
@@ -536,6 +536,37 @@ async def chat_ws(ws: WebSocket, room: str):
                     )
                 except Exception as e:
                     logger.error(f"Failed to toggle reaction in DynamoDB: {e}")
+
+                # 2. Update SQL
+                try:
+                    from datetime import datetime
+                    target_dt = datetime.fromisoformat(incoming.target_timestamp)
+                    async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                    async with async_session_factory() as session:
+                        statement = select(ChatMessage).where(ChatMessage.room == room, ChatMessage.timestamp == target_dt)
+                        result = await session.execute(statement)
+                        db_msg = result.scalars().first()
+                        if db_msg:
+                            # Re-initialize to ensure it's not a reference (though with JSON it's usually fine)
+                            reactions = db_msg.reactions.copy() if db_msg.reactions else {}
+                            users = reactions.get(incoming.emoji, [])
+                            
+                            if username in users:
+                                users.remove(username)
+                                if not users:
+                                    reactions.pop(incoming.emoji, None)
+                                else:
+                                    reactions[incoming.emoji] = users
+                            else:
+                                users.append(username)
+                                reactions[incoming.emoji] = users
+                            
+                            db_msg.reactions = reactions
+                            session.add(db_msg)
+                            await session.commit()
+                except Exception as e:
+                    logger.error(f"SQL React toggle error: {e}")
+                    pass
 
                 await redis_client.publish(
                     channel_key(room),
@@ -588,7 +619,6 @@ async def chat_ws(ws: WebSocket, room: str):
             if mentions:
                 for mention in set(mentions):
                     # Publish mention event. 
-                    # If we had a mapping service, we'd lookup ID. For now we notify the generic 'mentions' channel.
                     await redis_client.publish("global_mentions", json.dumps({
                         "type": "mention",
                         "target_username": mention,
@@ -597,12 +627,16 @@ async def chat_ws(ws: WebSocket, room: str):
                         "message": message.message[:100],
                     }))
 
+            from datetime import datetime
+            msg_dt = datetime.fromisoformat(message.timestamp)
+
             db_msg = ChatMessage(
                 room=room,
                 message=message.message,
                 user_id=message.user_id,
                 username=message.username,
                 avatar_url=message.avatar_url,
+                timestamp=msg_dt,
             )
 
             # Save to SQL
@@ -617,6 +651,7 @@ async def chat_ws(ws: WebSocket, room: str):
                     sender=username,
                     message=incoming.message,
                     user_id=user_id,
+                    timestamp=message.timestamp,
                 )
             except Exception as e:
                 logger.error(f"Failed to save message to DynamoDB: {e}")
