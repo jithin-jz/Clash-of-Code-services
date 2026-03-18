@@ -73,7 +73,7 @@ class DynamoClient:
             logger.exception("Error creating table: %s", e)
 
     async def save_message(
-        self, room_id: str, sender: str, message: str, user_id: str = None
+        self, room_id: str, sender: str, message: str, user_id: str = None, timestamp: str = None
     ):
         try:
             async with self.session.resource("dynamodb", **self.creds) as dynamo:
@@ -81,7 +81,7 @@ class DynamoClient:
                 await table.put_item(
                     Item={
                         "room_id": room_id,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": timestamp or datetime.utcnow().isoformat(),
                         "sender": sender,
                         "content": message,
                     }
@@ -122,7 +122,7 @@ class DynamoClient:
                 # We could ideally verify user_id matches, but we assume backend logic does that.
                 await table.update_item(
                     Key={"room_id": room_id, "timestamp": timestamp},
-                    UpdateExpression="SET message = :msg",
+                    UpdateExpression="SET content = :msg",
                     ExpressionAttributeValues={":msg": new_message}
                 )
         except Exception as e:
