@@ -436,18 +436,16 @@ async def chat_ws(ws: WebSocket, room: str):
                     logger.error(f"Failed to delete message in DynamoDB: {e}")
                 
                 try:
-                    from sqlalchemy.orm import sessionmaker
-                    from sqlmodel.ext.asyncio.session import AsyncSession
-                    from database import engine
+                    from sqlalchemy import delete
+                    from datetime import datetime
+                    target_dt = datetime.fromisoformat(incoming.target_timestamp)
                     async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
                     async with async_session_factory() as session:
-                        from sqlalchemy import delete
-                        from dateutil.parser import parse
-                        target_dt = parse(incoming.target_timestamp)
                         stmt = delete(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
                         await session.execute(stmt)
                         await session.commit()
                 except Exception as e:
+                    logger.error(f"SQL Delete error: {e}")
                     pass
 
                 await redis_client.publish(
@@ -468,14 +466,11 @@ async def chat_ws(ws: WebSocket, room: str):
                     logger.error(f"Failed to edit message in DynamoDB: {e}")
                 
                 try:
-                    from sqlalchemy.orm import sessionmaker
-                    from sqlmodel.ext.asyncio.session import AsyncSession
-                    from database import engine
+                    from sqlmodel import select
+                    from datetime import datetime
+                    target_dt = datetime.fromisoformat(incoming.target_timestamp)
                     async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
                     async with async_session_factory() as session:
-                        from sqlmodel import select
-                        from dateutil.parser import parse
-                        target_dt = parse(incoming.target_timestamp)
                         statement = select(ChatMessage).where(ChatMessage.room == room, ChatMessage.user_id == user_id, ChatMessage.timestamp == target_dt)
                         result = await session.execute(statement)
                         msg_to_edit = result.scalars().first()
@@ -483,6 +478,7 @@ async def chat_ws(ws: WebSocket, room: str):
                             msg_to_edit.message = incoming.message
                             await session.commit()
                 except Exception as e:
+                    logger.error(f"SQL Edit error: {e}")
                     pass
 
                 await redis_client.publish(
