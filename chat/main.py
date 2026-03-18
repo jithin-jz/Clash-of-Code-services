@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
+import re
 from schemas import ChatMessage as ChatMessageSchema, PresenceEvent, IncomingMessage
 from database import init_db, engine
 from models import ChatMessage
@@ -322,6 +323,18 @@ notification_manager = NotificationManager()
 
 @app.websocket("/ws/chat/{room}")
 async def chat_ws(ws: WebSocket, room: str):
+    # ---- DM Authorization ----
+    authorized_users = []
+    if room.startswith("dm_"):
+        try:
+            # Parse 'dm_123_456'
+            parts = room.split("_")
+            if len(parts) == 3:
+                authorized_users = [int(parts[1]), int(parts[2])]
+        except (ValueError, IndexError):
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     # ---- Auth ----
     token = None
 
@@ -346,6 +359,12 @@ async def chat_ws(ws: WebSocket, room: str):
     user_id = payload["user_id"]
     username = payload.get("username", f"user-{user_id}")
     avatar_url = payload.get("avatar_url")
+
+    # ---- DM Auth Check ----
+    if authorized_users and user_id not in authorized_users:
+        logger.warning(f"WebSocket connection rejected: user {user_id} not authorized for DM room {room}")
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     # ---- Rate Limit: Connection ----
     if not await rate_limiter.check_connection_rate(user_id):
@@ -576,6 +595,32 @@ async def chat_ws(ws: WebSocket, room: str):
             )
 
             # Persist to DB (SQL & DynamoDB)
+            # ---- Notification logic for DMs and @mentions ----
+            if authorized_users:
+                target_id = next((uid for uid in authorized_users if uid != user_id), None)
+                if target_id:
+                    dm_notif = json.dumps({
+                        "type": "dm_notification",
+                        "sender": username,
+                        "room": room,
+                        "message": message.message[:50] + "..." if len(message.message) > 50 else message.message,
+                    })
+                    await redis_client.publish(f"notifications_{target_id}", dm_notif)
+
+            # Detect @mentions for global notifications
+            mentions = re.findall(r"@(\w+)", message.message)
+            if mentions:
+                for mention in set(mentions):
+                    # Publish mention event. 
+                    # If we had a mapping service, we'd lookup ID. For now we notify the generic 'mentions' channel.
+                    await redis_client.publish("global_mentions", json.dumps({
+                        "type": "mention",
+                        "target_username": mention,
+                        "sender": username,
+                        "room": room,
+                        "message": message.message[:100],
+                    }))
+
             db_msg = ChatMessage(
                 room=room,
                 message=message.message,
