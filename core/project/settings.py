@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "administration",
     "posts",
     "notifications",
+    "achievements",
 ]
 
 staticfiles_index = INSTALLED_APPS.index("django.contrib.staticfiles")

@@ -138,5 +138,33 @@ class DynamoClient:
         except Exception as e:
             logger.exception("Error deleting message from DynamoDB: %s", e)
 
+    async def toggle_reaction(self, room_id: str, timestamp: str, username: str, emoji: str):
+        """Toggle a user's emoji reaction on a message. If already reacted with same emoji, remove it."""
+        try:
+            async with self.session.resource("dynamodb", **self.creds) as dynamo:
+                table = await dynamo.Table(TABLE_NAME)
+                # Get current item
+                response = await table.get_item(Key={"room_id": room_id, "timestamp": timestamp})
+                item = response.get("Item", {})
+                reactions = item.get("reactions", {})
+                
+                # Toggle: if user already reacted with this emoji, remove them; otherwise add
+                users_for_emoji = reactions.get(emoji, [])
+                if username in users_for_emoji:
+                    users_for_emoji.remove(username)
+                    if not users_for_emoji:
+                        reactions.pop(emoji, None)
+                else:
+                    users_for_emoji.append(username)
+                    reactions[emoji] = users_for_emoji
+
+                await table.update_item(
+                    Key={"room_id": room_id, "timestamp": timestamp},
+                    UpdateExpression="SET reactions = :r",
+                    ExpressionAttributeValues={":r": reactions}
+                )
+        except Exception as e:
+            logger.exception("Error toggling reaction in DynamoDB: %s", e)
+
 
 dynamo_client = DynamoClient()
