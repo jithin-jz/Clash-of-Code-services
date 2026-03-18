@@ -115,5 +115,28 @@ class DynamoClient:
             logger.exception("Error fetching messages from DynamoDB: %s", e)
             return []
 
+    async def edit_message(self, room_id: str, timestamp: str, user_id: int, new_message: str):
+        try:
+            async with self.session.resource("dynamodb", **self.creds) as dynamo:
+                table = await dynamo.Table(TABLE_NAME)
+                # We could ideally verify user_id matches, but we assume backend logic does that.
+                await table.update_item(
+                    Key={"room_id": room_id, "timestamp": timestamp},
+                    UpdateExpression="SET content = :msg",
+                    ExpressionAttributeValues={":msg": new_message}
+                )
+        except Exception as e:
+            logger.exception("Error editing message in DynamoDB: %s", e)
+
+    async def delete_message(self, room_id: str, timestamp: str):
+        try:
+            async with self.session.resource("dynamodb", **self.creds) as dynamo:
+                table = await dynamo.Table(TABLE_NAME)
+                await table.delete_item(
+                    Key={"room_id": room_id, "timestamp": timestamp}
+                )
+        except Exception as e:
+            logger.exception("Error deleting message from DynamoDB: %s", e)
+
 
 dynamo_client = DynamoClient()
