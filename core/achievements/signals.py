@@ -4,6 +4,7 @@ Achievement auto-unlock signals.
 Listens for challenge completions, streak check-ins, and social actions
 to automatically award achievements when conditions are met.
 """
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -30,6 +31,7 @@ def _grant(user, slug):
 
 
 # ──── Challenge-based achievements ────
+
 
 @receiver(post_save, sender=UserProgress)
 def check_challenge_achievements(sender, instance, **kwargs):
@@ -68,10 +70,14 @@ def check_challenge_achievements(sender, instance, **kwargs):
             _grant(user, "perfectionist")
     except Exception as e:
         import logging
-        logging.getLogger("achievements").warning(f"Error checking challenge achievements: {e}")
+
+        logging.getLogger("achievements").warning(
+            f"Error checking challenge achievements: {e}"
+        )
 
 
 # ──── Streak-based achievements ────
+
 
 @receiver(post_save, sender=DailyCheckIn)
 def check_streak_achievements(sender, instance, **kwargs):
@@ -86,10 +92,14 @@ def check_streak_achievements(sender, instance, **kwargs):
             _grant(user, "streak-master")
     except Exception as e:
         import logging
-        logging.getLogger("achievements").warning(f"Error checking streak achievements: {e}")
+
+        logging.getLogger("achievements").warning(
+            f"Error checking streak achievements: {e}"
+        )
 
 
 # ──── Social achievements ────
+
 
 @receiver(post_save, sender=UserFollow)
 def check_social_achievements(sender, instance, **kwargs):
@@ -105,4 +115,7 @@ def check_social_achievements(sender, instance, **kwargs):
             _grant(follower, "networker")
     except Exception as e:
         import logging
-        logging.getLogger("achievements").warning(f"Error checking social achievements: {e}")
+
+        logging.getLogger("achievements").warning(
+            f"Error checking social achievements: {e}"
+        )

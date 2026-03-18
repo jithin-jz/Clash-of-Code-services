@@ -364,14 +364,20 @@ class UserDetailsView(APIView):
     permission_classes = [IsAdminUser]
 
     @extend_schema(
-        responses={200: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        responses={
+            200: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
         description="Retrieve an admin drill-down view of a user including profile, challenge progress, purchases, notes, reports, and recent audit activity.",
     )
     def get(self, request, username):
         try:
             target = User.objects.select_related("profile").get(username=username)
         except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
         if not request.user.is_superuser and (target.is_staff or target.is_superuser):
             return Response(
@@ -380,7 +386,9 @@ class UserDetailsView(APIView):
             )
 
         user_data = UserSerializer(target, context={"request": request}).data
-        progress_qs = UserProgress.objects.filter(user=target).select_related("challenge")
+        progress_qs = UserProgress.objects.filter(user=target).select_related(
+            "challenge"
+        )
         completed_qs = progress_qs.filter(status=UserProgress.Status.COMPLETED)
         purchases = (
             Purchase.objects.filter(user=target)
@@ -416,9 +424,9 @@ class UserDetailsView(APIView):
                 {
                     "challenge": row.challenge.title,
                     "stars": row.stars,
-                    "completed_at": row.completed_at.isoformat()
-                    if row.completed_at
-                    else None,
+                    "completed_at": (
+                        row.completed_at.isoformat() if row.completed_at else None
+                    ),
                 }
             )
 
@@ -439,9 +447,9 @@ class UserDetailsView(APIView):
                 "role": _role_for_user(target),
                 "summary": {
                     "joined_at": target.date_joined.isoformat(),
-                    "last_login": target.last_login.isoformat()
-                    if target.last_login
-                    else None,
+                    "last_login": (
+                        target.last_login.isoformat() if target.last_login else None
+                    ),
                     "completed_challenges": completed_qs.count(),
                     "unlocked_challenges": progress_qs.exclude(
                         status=UserProgress.Status.LOCKED
@@ -449,9 +457,9 @@ class UserDetailsView(APIView):
                     "total_attempts": progress_qs.count(),
                     "avg_completion_time_seconds": avg_seconds,
                     "purchase_count": Purchase.objects.filter(user=target).count(),
-                    "open_reports": AdminReport.objects.filter(
-                        target_user=target
-                    ).exclude(status=AdminReport.Status.RESOLVED).count(),
+                    "open_reports": AdminReport.objects.filter(target_user=target)
+                    .exclude(status=AdminReport.Status.RESOLVED)
+                    .count(),
                 },
                 "recent_completions": recent_completions,
                 "recent_purchases": purchase_rows,
@@ -469,20 +477,30 @@ class UserRoleUpdateView(APIView):
     @extend_schema(
         request=inline_serializer(
             name="AdminUserRoleUpdateRequest",
-            fields={"role": serializers.ChoiceField(choices=["user", "staff", "superuser"])},
+            fields={
+                "role": serializers.ChoiceField(choices=["user", "staff", "superuser"])
+            },
         ),
-        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+        },
         description="Update a user's role. Only superusers may promote users to staff or superuser.",
     )
     def patch(self, request, username):
         try:
             target = User.objects.get(username=username)
         except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
         role = (request.data.get("role") or "").strip().lower()
         if role not in {"user", "staff", "superuser"}:
-            return Response({"error": "Invalid role."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid role."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         if request.user == target:
             return Response(
@@ -536,7 +554,10 @@ class UserBulkActionView(APIView):
         action = (request.data.get("action") or "").strip().lower()
         usernames = request.data.get("usernames") or []
         if action not in {"block", "unblock"} or not isinstance(usernames, list):
-            return Response({"error": "Invalid bulk action payload."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid bulk action payload."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         changed = []
         skipped = []
@@ -559,7 +580,9 @@ class UserBulkActionView(APIView):
                     )
                     continue
             if user.is_active == target_state:
-                skipped.append({"username": user.username, "reason": "No change needed."})
+                skipped.append(
+                    {"username": user.username, "reason": "No change needed."}
+                )
                 continue
             user.is_active = target_state
             user.save(update_fields=["is_active"])
@@ -591,7 +614,9 @@ class UserExportView(APIView):
         description="Export the current user list filters as CSV.",
     )
     def get(self, request):
-        users = User.objects.select_related("profile").all().order_by("-date_joined", "id")
+        users = (
+            User.objects.select_related("profile").all().order_by("-date_joined", "id")
+        )
         if not request.user.is_superuser:
             users = users.filter(is_staff=False, is_superuser=False)
 
@@ -664,17 +689,23 @@ class UserNotesView(APIView):
     )
     def get(self, request, username):
         notes = AdminNote.objects.filter(target_user__username=username)
-        return Response(AdminNoteSerializer(notes, many=True).data, status=status.HTTP_200_OK)
+        return Response(
+            AdminNoteSerializer(notes, many=True).data, status=status.HTTP_200_OK
+        )
 
     def post(self, request, username):
         try:
             target = User.objects.get(username=username)
         except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
         body = (request.data.get("body") or "").strip()
         if not body:
-            return Response({"error": "Note body is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Note body is required."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         note = AdminNote.objects.create(
             admin=request.user,
@@ -713,7 +744,9 @@ class AdminReportsView(APIView):
         description="List reports queue or create a new admin report.",
     )
     def get(self, request):
-        qs = AdminReport.objects.select_related("target_user", "created_by", "resolved_by")
+        qs = AdminReport.objects.select_related(
+            "target_user", "created_by", "resolved_by"
+        )
         status_filter = (request.query_params.get("status") or "").strip().upper()
         priority = (request.query_params.get("priority") or "").strip().upper()
         target = (request.query_params.get("target") or "").strip()
@@ -723,19 +756,26 @@ class AdminReportsView(APIView):
             qs = qs.filter(priority=priority)
         if target:
             qs = qs.filter(target_user__username__icontains=target)
-        return Response(AdminReportSerializer(qs[:100], many=True).data, status=status.HTTP_200_OK)
+        return Response(
+            AdminReportSerializer(qs[:100], many=True).data, status=status.HTTP_200_OK
+        )
 
     def post(self, request):
         target_username = (request.data.get("target") or "").strip()
         try:
             target = User.objects.get(username=target_username)
         except User.DoesNotExist:
-            return Response({"error": "Target user not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Target user not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         title = (request.data.get("title") or "").strip()
         summary = (request.data.get("summary") or "").strip()
         if not title or not summary:
-            return Response({"error": "Title and summary are required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Title and summary are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         report = AdminReport.objects.create(
             target_user=target,
@@ -743,7 +783,9 @@ class AdminReportsView(APIView):
             title=title,
             summary=summary,
             category=(request.data.get("category") or "GENERAL").strip() or "GENERAL",
-            priority=(request.data.get("priority") or AdminReport.Priority.MEDIUM).strip().upper(),
+            priority=(request.data.get("priority") or AdminReport.Priority.MEDIUM)
+            .strip()
+            .upper(),
             context=request.data.get("context") or {},
         )
         log_admin_action(
@@ -753,7 +795,9 @@ class AdminReportsView(APIView):
             request=request,
             details={"report_id": report.id, "priority": report.priority},
         )
-        return Response(AdminReportSerializer(report).data, status=status.HTTP_201_CREATED)
+        return Response(
+            AdminReportSerializer(report).data, status=status.HTTP_201_CREATED
+        )
 
 
 class AdminReportDetailView(APIView):
@@ -778,9 +822,15 @@ class AdminReportDetailView(APIView):
         description="Update a report queue item.",
     )
     def patch(self, request, report_id):
-        report = AdminReport.objects.select_related("target_user").filter(id=report_id).first()
+        report = (
+            AdminReport.objects.select_related("target_user")
+            .filter(id=report_id)
+            .first()
+        )
         if not report:
-            return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         if "status" in request.data:
             report.status = request.data.get("status")
@@ -798,7 +848,11 @@ class AdminReportDetailView(APIView):
             action="UPDATE_ADMIN_REPORT",
             target_user=report.target_user,
             request=request,
-            details={"report_id": report.id, "status": report.status, "priority": report.priority},
+            details={
+                "report_id": report.id,
+                "status": report.status,
+                "priority": report.priority,
+            },
         )
         return Response(AdminReportSerializer(report).data, status=status.HTTP_200_OK)
 
@@ -1208,10 +1262,9 @@ class BroadcastHistoryView(APIView):
         description="Retrieve broadcast history from admin audit logs.",
     )
     def get(self, request):
-        logs = (
-            AdminAuditLog.objects.filter(action="SEND_GLOBAL_NOTIFICATION")
-            .order_by("-timestamp")[:25]
-        )
+        logs = AdminAuditLog.objects.filter(action="SEND_GLOBAL_NOTIFICATION").order_by(
+            "-timestamp"
+        )[:25]
         rows = []
         for log in logs:
             rows.append(
@@ -1222,7 +1275,8 @@ class BroadcastHistoryView(APIView):
                     "include_staff": log.details.get("include_staff", False),
                     "reason": log.details.get("reason", ""),
                     "timestamp": log.timestamp.isoformat(),
-                    "admin": log.admin_username or (log.admin.username if log.admin else "System"),
+                    "admin": log.admin_username
+                    or (log.admin.username if log.admin else "System"),
                 }
             )
         return Response({"results": rows}, status=status.HTTP_200_OK)
@@ -1240,11 +1294,16 @@ class BroadcastResendView(APIView):
             action="SEND_GLOBAL_NOTIFICATION", request_id=request_id
         ).first()
         if not log:
-            return Response({"error": "Broadcast not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Broadcast not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         verb = (log.details or {}).get("message")
         if not verb:
-            return Response({"error": "Broadcast message missing."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Broadcast message missing."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         include_staff = _parse_bool((log.details or {}).get("include_staff", False))
         users_qs = User.objects.filter(is_active=True).exclude(id=request.user.id)
@@ -1252,7 +1311,10 @@ class BroadcastResendView(APIView):
             users_qs = users_qs.filter(is_staff=False, is_superuser=False)
         recipient_ids = list(users_qs.values_list("id", flat=True))
         Notification.objects.bulk_create(
-            [Notification(recipient_id=user_id, actor=request.user, verb=verb) for user_id in recipient_ids],
+            [
+                Notification(recipient_id=user_id, actor=request.user, verb=verb)
+                for user_id in recipient_ids
+            ],
             batch_size=1000,
         )
         log_admin_action(
@@ -1381,7 +1443,9 @@ class AdminAuditLogView(APIView):
                     ]
                 )
             response = HttpResponse(buffer.getvalue(), content_type="text/csv")
-            response["Content-Disposition"] = 'attachment; filename="admin-audit-logs.csv"'
+            response["Content-Disposition"] = (
+                'attachment; filename="admin-audit-logs.csv"'
+            )
             return response
 
         paginator = Paginator(logs, page_size)
@@ -1428,12 +1492,17 @@ class SystemHealthView(APIView):
         description="Get lightweight operational health data for the admin dashboard.",
     )
     def get(self, request):
-        latest_audit = AdminAuditLog.objects.order_by("-timestamp").values_list(
-            "timestamp", flat=True
-        ).first()
-        latest_broadcast = AdminAuditLog.objects.filter(
-            action="SEND_GLOBAL_NOTIFICATION"
-        ).order_by("-timestamp").values_list("timestamp", flat=True).first()
+        latest_audit = (
+            AdminAuditLog.objects.order_by("-timestamp")
+            .values_list("timestamp", flat=True)
+            .first()
+        )
+        latest_broadcast = (
+            AdminAuditLog.objects.filter(action="SEND_GLOBAL_NOTIFICATION")
+            .order_by("-timestamp")
+            .values_list("timestamp", flat=True)
+            .first()
+        )
         return Response(
             {
                 "database": "online",
@@ -1462,7 +1531,9 @@ class StoreItemDuplicateView(APIView):
     def post(self, request, item_id):
         item = StoreItem.objects.filter(id=item_id).first()
         if not item:
-            return Response({"error": "Store item not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Store item not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         duplicate = StoreItem.objects.create(
             name=f"{item.name} Copy",

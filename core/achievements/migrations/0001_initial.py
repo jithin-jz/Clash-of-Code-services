@@ -15,36 +15,100 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Achievement',
+            name="Achievement",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('slug', models.SlugField(help_text="Unique identifier, e.g. 'first-blood'", unique=True)),
-                ('title', models.CharField(max_length=100)),
-                ('description', models.TextField(max_length=300)),
-                ('icon', models.CharField(default='Trophy', help_text='Lucide icon name to render on frontend', max_length=50)),
-                ('category', models.CharField(choices=[('challenge', 'Challenge'), ('social', 'Social'), ('streak', 'Streak'), ('special', 'Special')], default='challenge', max_length=20)),
-                ('xp_reward', models.IntegerField(default=0, help_text='Bonus XP granted on unlock')),
-                ('is_secret', models.BooleanField(default=False, help_text='Hidden until unlocked')),
-                ('order', models.IntegerField(default=0)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "slug",
+                    models.SlugField(
+                        help_text="Unique identifier, e.g. 'first-blood'", unique=True
+                    ),
+                ),
+                ("title", models.CharField(max_length=100)),
+                ("description", models.TextField(max_length=300)),
+                (
+                    "icon",
+                    models.CharField(
+                        default="Trophy",
+                        help_text="Lucide icon name to render on frontend",
+                        max_length=50,
+                    ),
+                ),
+                (
+                    "category",
+                    models.CharField(
+                        choices=[
+                            ("challenge", "Challenge"),
+                            ("social", "Social"),
+                            ("streak", "Streak"),
+                            ("special", "Special"),
+                        ],
+                        default="challenge",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "xp_reward",
+                    models.IntegerField(
+                        default=0, help_text="Bonus XP granted on unlock"
+                    ),
+                ),
+                (
+                    "is_secret",
+                    models.BooleanField(
+                        default=False, help_text="Hidden until unlocked"
+                    ),
+                ),
+                ("order", models.IntegerField(default=0)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'verbose_name': 'Achievement',
-                'verbose_name_plural': 'Achievements',
-                'ordering': ['order'],
+                "verbose_name": "Achievement",
+                "verbose_name_plural": "Achievements",
+                "ordering": ["order"],
             },
         ),
         migrations.CreateModel(
-            name='UserAchievement',
+            name="UserAchievement",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('unlocked_at', models.DateTimeField(auto_now_add=True)),
-                ('achievement', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='unlocked_by', to='achievements.achievement')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='achievements', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("unlocked_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "achievement",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="unlocked_by",
+                        to="achievements.achievement",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="achievements",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['-unlocked_at'],
-                'unique_together': {('user', 'achievement')},
+                "ordering": ["-unlocked_at"],
+                "unique_together": {("user", "achievement")},
             },
         ),
     ]

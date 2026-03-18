@@ -59,11 +59,18 @@ class Migration(migrations.Migration):
                 ),
                 ("title", models.CharField(max_length=200)),
                 ("summary", models.TextField(max_length=2000)),
-                ("category", models.CharField(db_index=True, default="GENERAL", max_length=50)),
+                (
+                    "category",
+                    models.CharField(db_index=True, default="GENERAL", max_length=50),
+                ),
                 (
                     "priority",
                     models.CharField(
-                        choices=[("LOW", "Low"), ("MEDIUM", "Medium"), ("HIGH", "High")],
+                        choices=[
+                            ("LOW", "Low"),
+                            ("MEDIUM", "Medium"),
+                            ("HIGH", "High"),
+                        ],
                         db_index=True,
                         default="MEDIUM",
                         max_length=16,

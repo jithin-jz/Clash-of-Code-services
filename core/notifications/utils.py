@@ -63,11 +63,13 @@ def send_fcm_push(user, title, body, data=None):
         # Move notification details into data to give SW full control
         # and prevent double-show from browser native handler.
         fcm_data = data.copy() if data else {}
-        fcm_data.update({
-            "title": str(title),
-            "body": str(body),
-            "icon": "/favicon.png",
-        })
+        fcm_data.update(
+            {
+                "title": str(title),
+                "body": str(body),
+                "icon": "/favicon.png",
+            }
+        )
 
         message = messaging.MulticastMessage(
             data=fcm_data,
