@@ -122,7 +122,7 @@ class DynamoClient:
                 # We could ideally verify user_id matches, but we assume backend logic does that.
                 await table.update_item(
                     Key={"room_id": room_id, "timestamp": timestamp},
-                    UpdateExpression="SET content = :msg",
+                    UpdateExpression="SET message = :msg",
                     ExpressionAttributeValues={":msg": new_message}
                 )
         except Exception as e:
