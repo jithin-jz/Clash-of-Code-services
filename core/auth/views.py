@@ -1,5 +1,6 @@
 from urllib.parse import urlencode
 import logging
+from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -301,11 +302,26 @@ class DeleteAccountView(APIView):
         description="Permanently delete the authenticated user account.",
     )
     def delete(self, request):
-        user = request.user
-        user.delete()
-        return Response(
-            {"message": "Account deleted successfully"}, status=status.HTTP_200_OK
-        )
+        user_id = request.user.id
+        try:
+            with transaction.atomic():
+                # Explicitly fetch fresh user instance and lock the row
+                user = User.objects.select_for_update().get(id=user_id)
+                user.delete()
+
+            response = Response(
+                {"message": "Account deleted successfully"}, status=status.HTTP_200_OK
+            )
+            _clear_auth_cookies(response)
+            return response
+
+        except Exception as e:
+            # Crucial: Check your production logs for this error trace!
+            logger.exception(f"DeleteAccount failed for user_id={user_id}")
+            return Response(
+                {"error": "Failed to delete account. Please try again or contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 # --- Admin Views ---
