@@ -316,10 +316,9 @@ class DeleteAccountView(APIView):
             return response
 
         except Exception as e:
-            # Crucial: Check your production logs for this error trace!
-            logger.exception(f"DeleteAccount failed for user_id={user_id}")
+            # Temporary debug change ONLY to reveal the real production stopper
             return Response(
-                {"error": "Failed to delete account. Please try again or contact support."},
+                {"error": f"REAL ERROR: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
