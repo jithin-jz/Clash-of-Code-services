@@ -472,7 +472,7 @@ class SuggestedUsersView(APIView):
             .exclude(is_superuser=True)
             .exclude(is_staff=True)
             .select_related("profile")
-            .order_by("?")[:5]
+            .order_by("?")[:50]
         )
 
         data = []
