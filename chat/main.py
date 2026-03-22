@@ -98,12 +98,7 @@ async def get_message_history(
         return JSONResponse(
             content={
                 "messages": [
-                    {
-                        "username": msg["sender"],
-                        "message": msg["content"],
-                        "timestamp": msg["timestamp"],
-                        "reactions": msg.get("reactions", {}),
-                    }
+                    serialize_dynamo_message(room, msg)
                     for msg in reversed(paged_messages)
                 ],
                 "has_more": len(messages) > offset + len(paged_messages),
@@ -119,15 +114,16 @@ async def get_message_history(
         )
 
 
-def serialize_dynamo_message(room: str, message: dict) -> dict:
+def serialize_dynamo_message(room: str, item: dict) -> dict:
+    """Safely serialize a DynamoDB item for the frontend."""
     return {
         "room": room,
-        "message": message["content"],
-        "user_id": message.get("user_id"),
-        "username": message["sender"],
-        "avatar_url": message.get("avatar_url"),
-        "timestamp": message["timestamp"],
-        "reactions": message.get("reactions", {}),
+        "message": item.get("content", ""),
+        "user_id": item.get("user_id"),
+        "username": item.get("sender") or item.get("username") or "Unknown",
+        "avatar_url": item.get("avatar_url"),
+        "timestamp": item.get("timestamp"),
+        "reactions": item.get("reactions", {}),
     }
 
 

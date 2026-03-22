@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chat-migration
+  namespace: coc
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/jithin-jz/clash-of-code-services-chat:latest
+          imagePullPolicy: Always
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install asyncpg
+              python scripts/migrate_postgres_to_dynamo.py --legacy-db-url "$DATABASE_URL"
+          envFrom:
+            - configMapRef:
+                name: coc-config
+            - secretRef:
+                name: coc-secrets
