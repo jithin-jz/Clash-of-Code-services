@@ -319,7 +319,9 @@ class DeleteAccountView(APIView):
             # Table missing error? Run 'python manage.py migrate' in production.
             logger.exception(f"DeleteAccount failed for user_id={user_id}")
             return Response(
-                {"error": "Failed to delete account. Please try again or contact support."},
+                {
+                    "error": "Failed to delete account. Please try again or contact support."
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

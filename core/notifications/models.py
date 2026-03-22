@@ -25,6 +25,10 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["recipient", "-created_at"]),
+            models.Index(fields=["recipient", "is_read", "-created_at"]),
+        ]
 
     def __str__(self):
         return f"{self.actor} {self.verb} {self.target} for {self.recipient}"
@@ -36,6 +40,11 @@ class FCMToken(models.Model):
     device_id = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "-updated_at"]),
+        ]
 
     def __str__(self):
         return f"Token for {self.user.username}"

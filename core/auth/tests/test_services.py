@@ -5,6 +5,7 @@ from auth.services import AuthService
 from auth.models import EmailOTP
 from auth.utils import hash_otp
 from django.core.cache import cache
+from users.models import UserProfile
 
 
 class AuthServiceTest(TestCase):
@@ -65,3 +66,26 @@ class AuthServiceTest(TestCase):
         # Assert: Still 1 user in DB, and returns that user
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(user.email, self.email)
+
+    @patch("auth.tasks.fetch_oauth_avatar_task.delay")
+    def test_create_profile_queues_avatar_download(self, mock_avatar_task):
+        user = User.objects.create_user(
+            username="oauth-user", email="oauth@example.com"
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            AuthService._create_profile(
+                user=user,
+                provider="github",
+                user_info={
+                    "id": "123",
+                    "username": "oauth-user",
+                    "avatar_url": "https://example.com/avatar.png",
+                },
+                tokens={"access": "token", "refresh": "refresh"},
+            )
+
+        self.assertTrue(
+            UserProfile.objects.filter(user=user, provider="github").exists()
+        )
+        self.assertEqual(mock_avatar_task.call_count, 1)

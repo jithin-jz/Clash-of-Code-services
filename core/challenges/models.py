@@ -86,6 +86,11 @@ class UserProgress(models.Model):
 
     class Meta:
         unique_together = ["user", "challenge"]
+        indexes = [
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["user", "completed_at"]),
+            models.Index(fields=["challenge", "status"]),
+        ]
 
     def __str__(self):
         return (

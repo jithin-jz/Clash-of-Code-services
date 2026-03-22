@@ -39,3 +39,21 @@ def send_otp_email_task(email, otp):
     except Exception as e:
         logger.exception(f"OTP email task failed: {str(e)}")
         return {"status": "error", "error": str(e)}
+
+
+@shared_task
+def fetch_oauth_avatar_task(profile_id, url):
+    try:
+        from users.models import UserProfile
+        from .services import AuthService
+
+        profile = UserProfile.objects.get(pk=profile_id)
+        AuthService._download_and_save_avatar(profile, url)
+        logger.info("OAuth avatar task completed for profile %s", profile_id)
+        return {"status": "saved", "profile_id": profile_id}
+    except UserProfile.DoesNotExist:
+        logger.warning("Profile %s not found for avatar task", profile_id)
+        return {"status": "profile_not_found", "profile_id": profile_id}
+    except Exception as e:
+        logger.exception("OAuth avatar task failed: %s", str(e))
+        return {"status": "error", "error": str(e)}

@@ -6,10 +6,8 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
-# libpq-dev: needed for asyncpg PostgreSQL driver
 # curl: used for healthcheck probe
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 10001 appuser

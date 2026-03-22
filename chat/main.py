@@ -1,19 +1,13 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status, Request
 from fastapi.responses import JSONResponse
 import os, json, jwt, asyncio, logging
+from decimal import Decimal
 import redis.asyncio as redis
 from dotenv import load_dotenv
-from typing import Dict, List
-from sqlmodel import select
-from sqlalchemy import delete as sa_delete
-from sqlalchemy.orm import sessionmaker
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
+from typing import Dict, List, Any
 
 import re
 from schemas import ChatMessage as ChatMessageSchema, PresenceEvent, IncomingMessage
-from database import init_db, engine
-from models import ChatMessage
 from rate_limiter import RateLimiter
 from dynamo import dynamo_client
 
@@ -22,6 +16,19 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+# JSON Encoder for Boto3/DynamoDB Decimals
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return int(o) if o % 1 == 0 else float(o)
+        return super().default(o)
+
+
+def json_dumps(obj: Any) -> str:
+    return json.dumps(obj, cls=DecimalEncoder)
+
 
 load_dotenv()
 
@@ -48,7 +55,6 @@ TYPING_INDICATOR_TTL = 3  # seconds
 
 @app.on_event("startup")
 async def on_startup():
-    await init_db()
     await dynamo_client.create_table_if_not_exists()
 
 
@@ -85,70 +91,44 @@ async def get_message_history(
         )
 
     try:
-        # Try fetching from DynamoDB first for high performance
-        messages = await dynamo_client.get_messages(room, limit=limit)
+        fetch_limit = limit + max(offset, 0)
+        messages = await dynamo_client.get_messages(room, limit=fetch_limit)
+        paged_messages = messages[offset : offset + limit]
 
-        if messages:
-            return JSONResponse(
-                content={
-                    "messages": [
-                        {
-                            "username": msg["sender"],
-                            "message": msg["content"],
-                            "timestamp": msg["timestamp"],
-                            "reactions": msg.get("reactions", {}),
-                        }
-                        for msg in reversed(
-                            messages
-                        )  # Dynamo returns latest first, we want chronological
-                    ],
-                    "has_more": len(messages) == limit,
-                    "source": "dynamodb",
-                },
-                status_code=status.HTTP_200_OK,
-            )
-
-        # Fallback to SQL if Dynamo is empty (migration period)
-        async_session = sessionmaker(
-            engine, class_=AsyncSession, expire_on_commit=False
+        return JSONResponse(
+            content={
+                "messages": [
+                    {
+                        "username": msg["sender"],
+                        "message": msg["content"],
+                        "timestamp": msg["timestamp"],
+                        "reactions": msg.get("reactions", {}),
+                    }
+                    for msg in reversed(paged_messages)
+                ],
+                "has_more": len(messages) > offset + len(paged_messages),
+                "source": "dynamodb",
+            },
+            status_code=status.HTTP_200_OK,
         )
-        async with async_session() as session:
-            # Get messages with pagination
-            statement = (
-                select(ChatMessage)
-                .where(ChatMessage.room == room)
-                .order_by(ChatMessage.timestamp.desc())
-                .limit(limit)
-                .offset(offset)
-            )
-            result = await session.execute(statement)
-            messages = result.scalars().all()
-
-            # Reverse to get chronological order
-            messages = list(reversed(messages))
-
-            return JSONResponse(
-                content={
-                    "messages": [
-                        {
-                            "username": msg.username,
-                            "message": msg.message,
-                            "timestamp": msg.timestamp.isoformat(),
-                            "reactions": msg.reactions or {},
-                        }
-                        for msg in messages
-                    ],
-                    "has_more": len(messages) == limit,
-                    "source": "sql",
-                },
-                status_code=status.HTTP_200_OK,
-            )
     except Exception as e:
         logger.error(f"Error fetching message history: {e}", exc_info=True)
         return JSONResponse(
             content={"error": "Failed to fetch message history"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+def serialize_dynamo_message(room: str, message: dict) -> dict:
+    return {
+        "room": room,
+        "message": message["content"],
+        "user_id": message.get("user_id"),
+        "username": message["sender"],
+        "avatar_url": message.get("avatar_url"),
+        "timestamp": message["timestamp"],
+        "reactions": message.get("reactions", {}),
+    }
 
 
 # --------------------------------------------------
@@ -236,7 +216,7 @@ class ConnectionManager:
 
     async def broadcast_local(self, room: str, payload: dict):
         dead = []
-        message = json.dumps(payload)
+        message = json_dumps(payload)
 
         for ws in self.active.get(room, []):
             try:
@@ -308,7 +288,7 @@ class NotificationManager:
 
     async def broadcast_user(self, user_id: int, payload: dict):
         dead = []
-        message = json.dumps(payload)
+        message = json_dumps(payload)
         for ws in self.active.get(user_id, []):
             try:
                 await ws.send_text(message)
@@ -359,38 +339,21 @@ async def chat_ws(ws: WebSocket, room: str):
     # ---- Connect ----
     await manager.connect(ws, room)
 
-    # ---- Send history from DB ----
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # ---- Send history from DynamoDB ----
     history_data = []
     try:
-        async with async_session() as session:
-            statement = (
-                select(ChatMessage)
-                .where(ChatMessage.room == room)
-                .order_by(ChatMessage.timestamp.desc())
-                .limit(HISTORY_LIMIT)
-            )
-            result = await session.execute(statement)
-            messages = result.scalars().all()
-            # Front end expects oldest first
+        messages = await dynamo_client.get_messages(room, limit=HISTORY_LIMIT)
+        if messages:
             history_data = [
-                {
-                    "room": m.room,
-                    "message": m.message,
-                    "user_id": m.user_id,
-                    "username": m.username,
-                    "avatar_url": m.avatar_url,
-                    "timestamp": m.timestamp.isoformat(),
-                    "reactions": m.reactions or {},
-                }
-                for m in reversed(messages)
+                serialize_dynamo_message(room, message)
+                for message in reversed(messages)
             ]
-    except SQLAlchemyError as e:
-        logger.error("Failed to load chat history for room %s: %s", room, e)
+    except Exception as e:
+        logger.error("Failed to load chat history from Dynamo for room %s: %s", room, e)
 
     if history_data:
         await ws.send_text(
-            json.dumps(
+            json_dumps(
                 {
                     "type": "history",
                     "messages": history_data,
@@ -405,7 +368,7 @@ async def chat_ws(ws: WebSocket, room: str):
         if pinned:
             pin_data = json.loads(pinned)
             await ws.send_text(
-                json.dumps(
+                json_dumps(
                     {
                         "type": "chat_pin",
                         **pin_data,
@@ -453,34 +416,36 @@ async def chat_ws(ws: WebSocket, room: str):
 
             if incoming.action == "delete" and incoming.target_timestamp:
                 try:
-                    await dynamo_client.delete_message(
-                        room_id=room, timestamp=incoming.target_timestamp
+                    result = await dynamo_client.delete_message(
+                        room_id=room,
+                        timestamp=incoming.target_timestamp,
+                        user_id=user_id,
                     )
                 except Exception as e:
                     logger.error(f"Failed to delete message in DynamoDB: {e}")
+                    result = {"ok": False, "reason": "error"}
 
-                try:
-                    from datetime import datetime
-
-                    target_dt = datetime.fromisoformat(incoming.target_timestamp)
-                    async_session_factory = sessionmaker(
-                        engine, class_=AsyncSession, expire_on_commit=False
+                if not result.get("ok"):
+                    reason = result.get("reason")
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "message": (
+                                "Message not found."
+                                if reason == "not_found"
+                                else (
+                                    "You can only delete your own messages."
+                                    if reason == "forbidden"
+                                    else "Could not delete message. Please try again."
+                                )
+                            ),
+                        }
                     )
-                    async with async_session_factory() as session:
-                        stmt = sa_delete(ChatMessage).where(
-                            ChatMessage.room == room,
-                            ChatMessage.user_id == user_id,
-                            ChatMessage.timestamp == target_dt,
-                        )
-                        await session.execute(stmt)
-                        await session.commit()
-                except Exception as e:
-                    logger.error(f"SQL Delete error: {e}")
-                    pass
+                    continue
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps(
+                    json_dumps(
                         {
                             "type": "chat_delete",
                             "timestamp": incoming.target_timestamp,
@@ -497,7 +462,7 @@ async def chat_ws(ws: WebSocket, room: str):
                 and incoming.message
             ):
                 try:
-                    await dynamo_client.edit_message(
+                    result = await dynamo_client.edit_message(
                         room_id=room,
                         timestamp=incoming.target_timestamp,
                         user_id=user_id,
@@ -505,32 +470,29 @@ async def chat_ws(ws: WebSocket, room: str):
                     )
                 except Exception as e:
                     logger.error(f"Failed to edit message in DynamoDB: {e}")
+                    result = {"ok": False, "reason": "error"}
 
-                try:
-                    from datetime import datetime
-
-                    target_dt = datetime.fromisoformat(incoming.target_timestamp)
-                    async_session_factory = sessionmaker(
-                        engine, class_=AsyncSession, expire_on_commit=False
+                if not result.get("ok"):
+                    reason = result.get("reason")
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "message": (
+                                "Message not found."
+                                if reason == "not_found"
+                                else (
+                                    "You can only edit your own messages."
+                                    if reason == "forbidden"
+                                    else "Could not edit message. Please try again."
+                                )
+                            ),
+                        }
                     )
-                    async with async_session_factory() as session:
-                        statement = select(ChatMessage).where(
-                            ChatMessage.room == room,
-                            ChatMessage.user_id == user_id,
-                            ChatMessage.timestamp == target_dt,
-                        )
-                        result = await session.execute(statement)
-                        msg_to_edit = result.scalars().first()
-                        if msg_to_edit:
-                            msg_to_edit.message = incoming.message
-                            await session.commit()
-                except Exception as e:
-                    logger.error(f"SQL Edit error: {e}")
-                    pass
+                    continue
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps(
+                    json_dumps(
                         {
                             "type": "chat_edit",
                             "timestamp": incoming.target_timestamp,
@@ -546,7 +508,7 @@ async def chat_ws(ws: WebSocket, room: str):
             if incoming.action == "typing":
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps(
+                    json_dumps(
                         {
                             "type": "typing",
                             "user_id": user_id,
@@ -561,9 +523,8 @@ async def chat_ws(ws: WebSocket, room: str):
                 and incoming.target_timestamp
                 and incoming.emoji
             ):
-                # 1. Update DynamoDB
                 try:
-                    await dynamo_client.toggle_reaction(
+                    result = await dynamo_client.toggle_reaction(
                         room_id=room,
                         timestamp=incoming.target_timestamp,
                         username=username,
@@ -571,54 +532,27 @@ async def chat_ws(ws: WebSocket, room: str):
                     )
                 except Exception as e:
                     logger.error(f"Failed to toggle reaction in DynamoDB: {e}")
+                    result = {"ok": False, "reason": "error", "reactions": {}}
 
-                # 2. Update SQL
-                try:
-                    from datetime import datetime
-
-                    target_dt = datetime.fromisoformat(incoming.target_timestamp)
-                    async_session_factory = sessionmaker(
-                        engine, class_=AsyncSession, expire_on_commit=False
+                if not result.get("ok"):
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "message": "Message not found.",
+                        }
                     )
-                    async with async_session_factory() as session:
-                        statement = select(ChatMessage).where(
-                            ChatMessage.room == room, ChatMessage.timestamp == target_dt
-                        )
-                        result = await session.execute(statement)
-                        db_msg = result.scalars().first()
-                        if db_msg:
-                            # Re-initialize to ensure it's not a reference (though with JSON it's usually fine)
-                            reactions = (
-                                db_msg.reactions.copy() if db_msg.reactions else {}
-                            )
-                            users = reactions.get(incoming.emoji, [])
-
-                            if username in users:
-                                users.remove(username)
-                                if not users:
-                                    reactions.pop(incoming.emoji, None)
-                                else:
-                                    reactions[incoming.emoji] = users
-                            else:
-                                users.append(username)
-                                reactions[incoming.emoji] = users
-
-                            db_msg.reactions = reactions
-                            session.add(db_msg)
-                            await session.commit()
-                except Exception as e:
-                    logger.error(f"SQL React toggle error: {e}")
-                    pass
+                    continue
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps(
+                    json_dumps(
                         {
                             "type": "chat_react",
                             "timestamp": incoming.target_timestamp,
                             "emoji": incoming.emoji,
                             "username": username,
                             "user_id": user_id,
+                            "reactions": result.get("reactions", {}),
                             "room": room,
                         }
                     ),
@@ -631,7 +565,7 @@ async def chat_ws(ws: WebSocket, room: str):
                 if incoming.action == "pin":
                     await redis_client.set(
                         pin_key,
-                        json.dumps(
+                        json_dumps(
                             {
                                 "timestamp": incoming.target_timestamp,
                                 "pinned_by": username,
@@ -644,7 +578,7 @@ async def chat_ws(ws: WebSocket, room: str):
 
                 await redis_client.publish(
                     channel_key(room),
-                    json.dumps(
+                    json_dumps(
                         {
                             "type": (
                                 "chat_pin" if incoming.action == "pin" else "chat_unpin"
@@ -666,7 +600,6 @@ async def chat_ws(ws: WebSocket, room: str):
                 avatar_url=avatar_url,
             )
 
-            # Persist to DB (SQL & DynamoDB)
             # Detect @mentions for global notifications
             mentions = re.findall(r"@(\w+)", message.message)
             if mentions:
@@ -674,7 +607,7 @@ async def chat_ws(ws: WebSocket, room: str):
                     # Publish mention event.
                     await redis_client.publish(
                         "global_mentions",
-                        json.dumps(
+                        json_dumps(
                             {
                                 "type": "mention",
                                 "target_username": mention,
@@ -685,36 +618,24 @@ async def chat_ws(ws: WebSocket, room: str):
                         ),
                     )
 
-            from datetime import datetime
-
-            msg_dt = datetime.fromisoformat(message.timestamp)
-
-            db_msg = ChatMessage(
-                room=room,
-                message=message.message,
-                user_id=message.user_id,
-                username=message.username,
-                avatar_url=message.avatar_url,
-                timestamp=msg_dt,
-            )
-
-            # Save to SQL
-            async with async_session() as session:
-                session.add(db_msg)
-                await session.commit()
-
-            # Save to DynamoDB for high-speed history retrieval
             try:
                 await dynamo_client.save_message(
                     room_id=room,
                     sender=username,
                     message=incoming.message,
                     user_id=user_id,
+                    avatar_url=avatar_url,
                     timestamp=message.timestamp,
                 )
             except Exception as e:
                 logger.error(f"Failed to save message to DynamoDB: {e}")
-                # We continue anyway to ensure real-time broadcast works
+                await ws.send_json(
+                    {
+                        "type": "error",
+                        "message": "Message could not be saved. Please try again.",
+                    }
+                )
+                continue
 
             # Publish
             await redis_client.publish(

@@ -121,6 +121,10 @@ class UserProfile(models.Model):
         unique_together = ["provider", "provider_id"]
         verbose_name = "User Profile"
         verbose_name_plural = "User Profiles"
+        indexes = [
+            models.Index(fields=["-xp"]),
+            models.Index(fields=["provider"]),
+        ]
 
     def save(self, *args, **kwargs):
         # Auto-generate unique referral code if missing
@@ -172,6 +176,7 @@ class UserFollow(models.Model):
         # Optimize follower/following queries
         indexes = [
             models.Index(fields=["follower", "following"]),
+            models.Index(fields=["following", "follower"]),
         ]
 
     def __str__(self):
