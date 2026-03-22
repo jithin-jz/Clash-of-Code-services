@@ -1,17 +1,15 @@
 import os
 import pytest
 import json
-import asyncio
 from starlette.websockets import WebSocketDisconnect
 
 # Set dummy environment variables BEFORE importing main app
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://user:pass@localhost/db"
 os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 os.environ["JWT_PUBLIC_KEY"] = "dummy_key"
 
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock, MagicMock
-from main import app, manager
+from main import app
 
 client = TestClient(app)
 
@@ -24,7 +22,7 @@ async def test_websocket_auth_failure(mock_limiter, mock_verify):
 
     with pytest.raises(WebSocketDisconnect) as exc:
         with client.websocket_connect(
-            "/ws/chat/general",
+            "/ws/chat/global",
             headers={"authorization": "Bearer invalid"},
         ) as websocket:
             pass
@@ -35,10 +33,9 @@ async def test_websocket_auth_failure(mock_limiter, mock_verify):
 @patch("main.verify_jwt")
 @patch("main.rate_limiter")
 @patch("main.redis_client")
-@patch("main.sessionmaker")
 @patch("main.dynamo_client")
 async def test_websocket_success_flow(
-    mock_dynamo, mock_sessionmaker, mock_redis, mock_limiter, mock_verify
+    mock_dynamo, mock_redis, mock_limiter, mock_verify
 ):
     # Setup Auth
     mock_verify.return_value = {"user_id": 1, "username": "testuser"}
@@ -47,13 +44,6 @@ async def test_websocket_success_flow(
     mock_limiter.check_connection_rate = AsyncMock(return_value=True)
     mock_limiter.check_message_rate = AsyncMock(return_value=True)
     mock_limiter.check_burst_rate = AsyncMock(return_value=True)
-
-    # Setup DB History (empty)
-    mock_session = AsyncMock()
-    mock_sessionmaker.return_value.return_value.__aenter__.return_value = mock_session
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
-    mock_session.execute.return_value = mock_result
 
     # Mock Redis (Sync container)
     mock_redis.publish = AsyncMock()
@@ -75,19 +65,65 @@ async def test_websocket_success_flow(
     mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
 
     # Mock Dynamo
+    mock_dynamo.get_messages = AsyncMock(return_value=[])
     mock_dynamo.save_message = AsyncMock()
 
     with client.websocket_connect(
-        "/ws/chat/general",
+        "/ws/chat/global",
         headers={"authorization": "Bearer valid"},
     ) as websocket:
         # Send a message
         websocket.send_text(json.dumps({"message": "hello world"}))
 
     # Verify side effects
-    # 1. SQL Save
-    mock_session.add.assert_called()
-    # 2. Dynamo Save
+    # 1. Dynamo Save
     mock_dynamo.save_message.assert_called()
-    # 3. Redis Publish (Presence + Message)
+    # 2. Redis Publish (Presence + Message)
     assert mock_redis.publish.call_count >= 2
+
+
+@pytest.mark.asyncio
+@patch("main.verify_jwt")
+@patch("main.rate_limiter")
+@patch("main.redis_client")
+@patch("main.dynamo_client")
+async def test_websocket_delete_forbidden_stays_local(
+    mock_dynamo, mock_redis, mock_limiter, mock_verify
+):
+    mock_verify.return_value = {"user_id": 1, "username": "testuser"}
+    mock_limiter.check_connection_rate = AsyncMock(return_value=True)
+    mock_limiter.check_message_rate = AsyncMock(return_value=True)
+    mock_limiter.check_burst_rate = AsyncMock(return_value=True)
+    mock_dynamo.get_messages = AsyncMock(return_value=[])
+    mock_dynamo.delete_message = AsyncMock(
+        return_value={"ok": False, "reason": "forbidden"}
+    )
+    mock_redis.publish = AsyncMock()
+
+    mock_pubsub = MagicMock()
+    mock_pubsub.subscribe = AsyncMock()
+    mock_pubsub.unsubscribe = AsyncMock()
+
+    async def empty_gen():
+        if False:
+            yield None
+
+    mock_pubsub.listen.return_value = empty_gen()
+    mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+    with client.websocket_connect(
+        "/ws/chat/global",
+        headers={"authorization": "Bearer valid"},
+    ) as websocket:
+        websocket.send_text(
+            json.dumps(
+                {
+                    "action": "delete",
+                    "target_timestamp": "2023-01-01T00:00:00",
+                }
+            )
+        )
+        response = websocket.receive_json()
+
+    assert response["type"] == "error"
+    assert "delete your own messages" in response["message"]

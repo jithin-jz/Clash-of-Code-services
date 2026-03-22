@@ -4,6 +4,7 @@ from io import StringIO
 from datetime import datetime, time, timedelta
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.core.paginator import Paginator
 from django.db import models
@@ -41,6 +42,8 @@ from .serializers import (
     UserEngagementAnalyticsSerializer,
     UltimateAnalyticsSerializer,
 )
+
+ANALYTICS_CACHE_TTL = 60 * 2
 
 
 def _request_ip(request):
@@ -95,6 +98,10 @@ def _parse_datetime_filter(value, end_of_day=False):
     return timezone.make_aware(dt, timezone.get_current_timezone())
 
 
+def _analytics_cache_key(prefix, request):
+    return f"admin_analytics:{prefix}:{request.get_full_path()}"
+
+
 def log_admin_action(admin, action, request=None, target_user=None, details=None):
     """Helper to record administrative actions in the audit log."""
     AdminAuditLog.objects.create(
@@ -132,6 +139,11 @@ class AdminStatsView(APIView):
         description="Get administration statistics including total users, active sessions, and economy totals.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("stats", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         total_users = User.objects.count()
         yesterday = timezone.now() - timedelta(days=1)
         active_sessions = User.objects.filter(last_login__gte=yesterday).count()
@@ -147,6 +159,7 @@ class AdminStatsView(APIView):
             "total_gems": total_xp,
         }
         serializer = AdminStatsSerializer(data)
+        cache.set(cache_key, serializer.data, timeout=ANALYTICS_CACHE_TTL)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -867,6 +880,11 @@ class ChallengeAnalyticsView(APIView):
         description="Get detailed challenge performance analytics including completion rates and average stars.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("challenge-analytics", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         challenges = Challenge.objects.all()
         progress_summary = UserProgress.objects.values("challenge_id").annotate(
             total_attempts=Count("id"),
@@ -928,6 +946,7 @@ class ChallengeAnalyticsView(APIView):
             )
 
         serializer = ChallengeAnalyticsSerializer(analytics_data, many=True)
+        cache.set(cache_key, serializer.data, timeout=ANALYTICS_CACHE_TTL)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -941,6 +960,11 @@ class StoreAnalyticsView(APIView):
         description="Get store economy analytics, item popularity, and total XP revenue.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("store-analytics", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         items = StoreItem.objects.annotate(purchase_count=Count("purchases")).order_by(
             "-purchase_count"
         )
@@ -959,6 +983,7 @@ class StoreAnalyticsView(APIView):
         total_revenue = sum(item["revenue"] for item in item_stats)
         data = {"items": item_stats, "total_xp_spent": total_revenue}
         serializer = StoreAnalyticsSerializer(data)
+        cache.set(cache_key, serializer.data, timeout=ANALYTICS_CACHE_TTL)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -972,6 +997,11 @@ class UserEngagementAnalyticsView(APIView):
         description="Get user growth trends, active session counts, and auth provider distribution.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("user-engagement", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         now = timezone.now()
         thirty_days_ago = now - timedelta(days=30)
 
@@ -1003,17 +1033,18 @@ class UserEngagementAnalyticsView(APIView):
         ]
 
         # 4. Top Users by XP
-        top_profiles = UserProfile.objects.select_related("user").order_by("-xp")[:10]
+        top_profiles = (
+            UserProfile.objects.select_related("user")
+            .annotate(followers_count=Count("user__followers", distinct=True))
+            .order_by("-xp")[:10]
+        )
         top_users = []
         for p in top_profiles:
-            followers_count = 0
-            if hasattr(p.user, "followers"):
-                followers_count = p.user.followers.count()
             top_users.append(
                 {
                     "username": p.user.username,
                     "xp": p.xp,
-                    "followers": followers_count,
+                    "followers": p.followers_count,
                 }
             )
 
@@ -1024,6 +1055,7 @@ class UserEngagementAnalyticsView(APIView):
             "top_users": top_users,
         }
         serializer = UserEngagementAnalyticsSerializer(data)
+        cache.set(cache_key, serializer.data, timeout=ANALYTICS_CACHE_TTL)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -1037,6 +1069,11 @@ class UltimateAnalyticsView(APIView):
         description="Consolidated analytics including growth, economy, and performance leaderboards.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("ultimate", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         now = timezone.now()
         thirty_ago = now - timedelta(days=30)
 
@@ -1150,14 +1187,16 @@ class UltimateAnalyticsView(APIView):
         top_items = sorted(item_stats, key=lambda x: x["revenue"], reverse=True)[:5]
 
         # 6. Community Leaders
-        top_profiles = UserProfile.objects.select_related("user").order_by("-xp")[:10]
+        top_profiles = (
+            UserProfile.objects.select_related("user")
+            .annotate(followers_count=Count("user__followers", distinct=True))
+            .order_by("-xp")[:10]
+        )
         community_leaders = [
             {
                 "username": p.user.username,
                 "xp": p.xp,
-                "followers": (
-                    p.user.followers.count() if hasattr(p.user, "followers") else 0
-                ),
+                "followers": p.followers_count,
             }
             for p in top_profiles
         ]
@@ -1190,6 +1229,7 @@ class UltimateAnalyticsView(APIView):
             "system_health": system_health,
         }
         serializer = UltimateAnalyticsSerializer(data)
+        cache.set(cache_key, serializer.data, timeout=ANALYTICS_CACHE_TTL)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -1473,6 +1513,11 @@ class SystemIntegrityView(APIView):
         description="Get current collection counts for key system models.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("system-integrity", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         data = {
             "users": User.objects.count(),
             "challenges": Challenge.objects.count(),
@@ -1481,6 +1526,7 @@ class SystemIntegrityView(APIView):
             "audit_logs": AdminAuditLog.objects.count(),
         }
         serializer = SystemIntegritySerializer(data)
+        cache.set(cache_key, serializer.data, timeout=ANALYTICS_CACHE_TTL)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -1492,6 +1538,11 @@ class SystemHealthView(APIView):
         description="Get lightweight operational health data for the admin dashboard.",
     )
     def get(self, request):
+        cache_key = _analytics_cache_key("system-health", request)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         latest_audit = (
             AdminAuditLog.objects.order_by("-timestamp")
             .values_list("timestamp", flat=True)
@@ -1503,22 +1554,21 @@ class SystemHealthView(APIView):
             .values_list("timestamp", flat=True)
             .first()
         )
-        return Response(
-            {
-                "database": "online",
-                "authentication": "online",
-                "notifications": "online",
-                "audit_pipeline": "active",
-                "latest_audit_at": latest_audit.isoformat() if latest_audit else None,
-                "latest_broadcast_at": (
-                    latest_broadcast.isoformat() if latest_broadcast else None
-                ),
-                "open_reports": AdminReport.objects.exclude(
-                    status=AdminReport.Status.RESOLVED
-                ).count(),
-            },
-            status=status.HTTP_200_OK,
-        )
+        data = {
+            "database": "online",
+            "authentication": "online",
+            "notifications": "online",
+            "audit_pipeline": "active",
+            "latest_audit_at": latest_audit.isoformat() if latest_audit else None,
+            "latest_broadcast_at": (
+                latest_broadcast.isoformat() if latest_broadcast else None
+            ),
+            "open_reports": AdminReport.objects.exclude(
+                status=AdminReport.Status.RESOLVED
+            ).count(),
+        }
+        cache.set(cache_key, data, timeout=ANALYTICS_CACHE_TTL)
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class StoreItemDuplicateView(APIView):

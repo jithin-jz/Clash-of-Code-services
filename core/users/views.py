@@ -1,10 +1,12 @@
+import random
+
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import ValidationError
 from django.core.cache import cache
 from django.db import transaction, IntegrityError
-from django.db.models import Count
+from django.db.models import Case, Count, IntegerField, When
 from django.db.models.functions import TruncDate
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -300,20 +302,19 @@ class UserFollowersView(APIView):
                 {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        followers = target_user.followers.all()
-        # We want to show: username, avatar, and if the *requesting user* is following them
+        followers = target_user.followers.select_related(
+            "follower", "follower__profile"
+        )
+        following_ids = set()
+        if request.user.is_authenticated:
+            following_ids = set(
+                request.user.following.values_list("following_id", flat=True)
+            )
 
         data = []
-        auth_user = request.user
 
         for rel in followers:
             follower_user = rel.follower
-            is_following = False
-            if auth_user.is_authenticated:
-                is_following = auth_user.following.filter(
-                    following=follower_user
-                ).exists()
-
             profile = getattr(follower_user, "profile", None)
 
             data.append(
@@ -323,7 +324,7 @@ class UserFollowersView(APIView):
                     "avatar_url": (
                         build_file_url(profile.avatar, request) if profile else None
                     ),
-                    "is_following": is_following,
+                    "is_following": follower_user.id in following_ids,
                 }
             )
 
@@ -344,20 +345,19 @@ class UserFollowingView(APIView):
                 {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        following = target_user.following.all()
+        following = target_user.following.select_related(
+            "following", "following__profile"
+        )
+        following_ids = set()
+        if request.user.is_authenticated:
+            following_ids = set(
+                request.user.following.values_list("following_id", flat=True)
+            )
 
         data = []
-        auth_user = request.user
 
         for rel in following:
             following_user = rel.following
-            is_following = False
-            if auth_user.is_authenticated:
-                # Check if auth user is following this person (who target_user is also following)
-                is_following = auth_user.following.filter(
-                    following=following_user
-                ).exists()
-
             profile = getattr(following_user, "profile", None)
 
             data.append(
@@ -367,7 +367,7 @@ class UserFollowingView(APIView):
                     "avatar_url": (
                         build_file_url(profile.avatar, request) if profile else None
                     ),
-                    "is_following": is_following,
+                    "is_following": following_user.id in following_ids,
                 }
             )
 
@@ -464,15 +464,30 @@ class SuggestedUsersView(APIView):
     serializer_class = UserSummarySerializer
 
     def get(self, request):
-        # Get users the current user is NOT following (excluding self)
         following_ids = request.user.following.values_list("following_id", flat=True)
-
-        suggested = (
+        candidate_ids = list(
             User.objects.exclude(id__in=list(following_ids) + [request.user.id])
             .exclude(is_superuser=True)
             .exclude(is_staff=True)
+            .order_by("-date_joined", "-id")
+            .values_list("id", flat=True)[:500]
+        )
+        if len(candidate_ids) > 50:
+            candidate_ids = random.sample(candidate_ids, 50)
+        if not candidate_ids:
+            return Response([], status=status.HTTP_200_OK)
+
+        ordering = Case(
+            *[
+                When(id=user_id, then=position)
+                for position, user_id in enumerate(candidate_ids)
+            ],
+            output_field=IntegerField(),
+        )
+        suggested = (
+            User.objects.filter(id__in=candidate_ids)
             .select_related("profile")
-            .order_by("?")[:50]
+            .order_by(ordering)
         )
 
         data = []

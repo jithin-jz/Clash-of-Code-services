@@ -7,7 +7,7 @@ from drf_spectacular.utils import extend_schema_field
 class PostSerializer(serializers.ModelSerializer):
     user = UserSummarySerializer(read_only=True)
     is_liked = serializers.SerializerMethodField()
-    likes_count = serializers.IntegerField(source="likes.count", read_only=True)
+    likes_count = serializers.SerializerMethodField()
     image_url = serializers.ImageField(source="image", read_only=True)
 
     class Meta:
@@ -27,7 +27,15 @@ class PostSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(bool)
     def get_is_liked(self, obj):
+        if hasattr(obj, "is_liked"):
+            return bool(obj.is_liked)
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.likes.filter(id=request.user.id).exists()
         return False
+
+    @extend_schema_field(int)
+    def get_likes_count(self, obj):
+        if hasattr(obj, "likes_count"):
+            return int(obj.likes_count)
+        return obj.likes.count()

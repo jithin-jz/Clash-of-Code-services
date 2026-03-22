@@ -22,7 +22,11 @@ from .utils import (
     get_google_access_token,
     get_google_user,
 )
-from .tasks import send_welcome_email_task, send_otp_email_task
+from .tasks import (
+    fetch_oauth_avatar_task,
+    send_otp_email_task,
+    send_welcome_email_task,
+)
 from .emails import send_otp_email
 
 logger = logging.getLogger(__name__)
@@ -220,7 +224,11 @@ class AuthService:
 
             # Update avatar if missing
             if not profile.avatar and user_info.get("avatar_url"):
-                AuthService._download_and_save_avatar(profile, user_info["avatar_url"])
+                transaction.on_commit(
+                    lambda: fetch_oauth_avatar_task.delay(
+                        profile.id, user_info["avatar_url"]
+                    )
+                )
 
         else:
             # Create fresh profile
@@ -234,7 +242,11 @@ class AuthService:
             )
 
             if user_info.get("avatar_url"):
-                AuthService._download_and_save_avatar(profile, user_info["avatar_url"])
+                transaction.on_commit(
+                    lambda: fetch_oauth_avatar_task.delay(
+                        profile.id, user_info["avatar_url"]
+                    )
+                )
 
     @staticmethod
     def _download_and_save_avatar(profile, url):

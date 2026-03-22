@@ -1,7 +1,13 @@
+from django.core.paginator import Paginator
 from rest_framework import viewsets, permissions, status, mixins, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiTypes, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
 from auth.throttles import NotificationRateThrottle
 from .models import Notification, FCMToken
 from .serializers import NotificationSerializer, FCMTokenSerializer
@@ -64,8 +70,62 @@ class NotificationViewSet(
     throttle_classes = [NotificationRateThrottle]
 
     def get_queryset(self):
-        return Notification.objects.filter(recipient=self.request.user).order_by(
-            "-created_at"
+        return Notification.objects.select_related("actor", "actor__profile").filter(
+            recipient=self.request.user
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("page", int, OpenApiParameter.QUERY, default=1),
+            OpenApiParameter("page_size", int, OpenApiParameter.QUERY, default=50),
+        ],
+        responses={
+            200: inline_serializer(
+                name="NotificationListResponse",
+                fields={
+                    "count": serializers.IntegerField(),
+                    "unread_count": serializers.IntegerField(),
+                    "page": serializers.IntegerField(),
+                    "page_size": serializers.IntegerField(),
+                    "total_pages": serializers.IntegerField(),
+                    "results": NotificationSerializer(many=True),
+                },
+            )
+        },
+        description="List notifications for the authenticated user with pagination metadata.",
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset().order_by("-created_at")
+        unread_count = queryset.filter(is_read=False).count()
+
+        try:
+            page = max(int(request.query_params.get("page", 1)), 1)
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(request.query_params.get("page_size", 50))
+        except (TypeError, ValueError):
+            page_size = 50
+        page_size = min(max(page_size, 1), 100)
+
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(page)
+        serializer = self.get_serializer(
+            page_obj.object_list,
+            many=True,
+            context={"request": request},
+        )
+
+        return Response(
+            {
+                "count": paginator.count,
+                "unread_count": unread_count,
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "results": serializer.data,
+            },
+            status=status.HTTP_200_OK,
         )
 
     @extend_schema(

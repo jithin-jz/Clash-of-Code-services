@@ -25,7 +25,7 @@ class NotificationUtilsTests(TestCase):
         mock_send.assert_called_once()
         args, kwargs = mock_send.call_args
         message = args[0]
-        self.assertEqual(message.notification.title, "Hello")
+        self.assertEqual(message.data["title"], "Hello")
         self.assertEqual(message.tokens, ["valid-token-123"])
 
     @patch("firebase_admin.messaging.send_each_for_multicast")

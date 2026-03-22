@@ -1,13 +1,10 @@
 import logging
-import os
-import time
-import hmac
 from hashlib import sha256
-import requests
 
-from django.contrib.auth.models import User
+from celery.result import AsyncResult
+from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Q
 from drf_spectacular.utils import OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import decorators, serializers, status, viewsets
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
@@ -18,27 +15,59 @@ from challenges.models import Challenge, UserProgress
 from challenges.serializers import ChallengeAdminSerializer, ChallengePublicSerializer
 from challenges.services import ChallengeService
 from project.internal_auth import authorize_internal_request
-from users.models import UserProfile
+from .tasks import (
+    LEADERBOARD_CACHE_KEY,
+    LEADERBOARD_CACHE_TIMEOUT,
+    build_leaderboard_data,
+    generate_ai_analysis_task,
+    generate_ai_hint_task,
+)
 
 logger = logging.getLogger(__name__)
+AI_TASK_META_TIMEOUT = 60 * 60 * 24
 
 
-def _build_internal_headers(path: str) -> dict[str, str]:
-    headers = {
-        "X-Internal-API-Key": os.getenv("INTERNAL_API_KEY", ""),
-        "Content-Type": "application/json",
-    }
-    signing_secret = os.getenv("INTERNAL_SIGNING_SECRET", "").strip()
-    if signing_secret:
-        timestamp = str(int(time.time()))
-        signature = hmac.new(
-            signing_secret.encode("utf-8"),
-            f"{timestamp}:{path}".encode("utf-8"),
-            sha256,
-        ).hexdigest()
-        headers["X-Internal-Timestamp"] = timestamp
-        headers["X-Internal-Signature"] = signature
-    return headers
+def _analysis_cache_key(challenge_id: int, user_code: str) -> str:
+    code_hash = sha256((user_code or "").encode("utf-8")).hexdigest()
+    return f"ai_analysis:{challenge_id}:{code_hash}"
+
+
+def _task_meta_cache_key(task_id: str) -> str:
+    return f"ai_task_meta:{task_id}"
+
+
+def _store_ai_task_meta(task_id: str, user_id: int, task_type: str) -> None:
+    cache.set(
+        _task_meta_cache_key(task_id),
+        {"user_id": user_id, "task_type": task_type},
+        timeout=AI_TASK_META_TIMEOUT,
+    )
+
+
+def _task_status_label(async_result: AsyncResult) -> str:
+    if async_result.status in {"PENDING", "RECEIVED"}:
+        return "queued"
+    if async_result.status in {"STARTED", "RETRY"}:
+        return "running"
+    if async_result.status == "SUCCESS":
+        task_result = async_result.result
+        if isinstance(task_result, dict) and task_result.get("ok"):
+            return "success"
+        return "failed"
+    return "failed"
+
+
+def _build_ai_result_response(task_result):
+    if isinstance(task_result, dict) and task_result.get("ok"):
+        return Response(task_result.get("payload", {}), status=status.HTTP_200_OK)
+
+    error = "AI task failed"
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    if isinstance(task_result, dict):
+        error = task_result.get("error", error)
+        status_code = int(task_result.get("status_code", status_code))
+
+    return Response({"error": error}, status=status_code)
 
 
 class ChallengeViewSet(viewsets.ModelViewSet):
@@ -260,6 +289,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         ),
         responses={
             200: OpenApiTypes.OBJECT,
+            202: OpenApiTypes.OBJECT,
             400: OpenApiTypes.OBJECT,
             402: OpenApiTypes.OBJECT,
             503: OpenApiTypes.OBJECT,
@@ -294,7 +324,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
 
         cache_key = f"ai_hint:{user.id}:{challenge.id}:level:{hint_level}"
         cached_hint = cache.get(cache_key)
-        if cached_hint:
+        if cached_hint is not None:
             return Response(
                 {
                     "hint": cached_hint,
@@ -305,34 +335,23 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_200_OK,
             )
 
-        ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
-        payload = {
-            "user_code": request.data.get("user_code", ""),
-            "challenge_slug": challenge.slug,
-            "hint_level": hint_level,
-            "user_xp": user.profile.xp,
-        }
-        headers = _build_internal_headers("/hints")
+        async_result = generate_ai_hint_task.delay(
+            user_id=user.id,
+            challenge_id=challenge.id,
+            challenge_slug=challenge.slug,
+            user_code=request.data.get("user_code", ""),
+            hint_level=hint_level,
+            user_xp=user.profile.xp,
+        )
+        _store_ai_task_meta(async_result.id, user.id, "hint")
 
-        try:
-            resp = requests.post(
-                f"{ai_url}/hints", json=payload, headers=headers, timeout=30
-            )
-            if resp.status_code == 200:
-                body = resp.json()
-                hint_text = body.get("hint")
-                if isinstance(hint_text, str) and hint_text.strip():
-                    cache.set(cache_key, hint_text, timeout=60 * 60 * 24 * 30)
-                body.setdefault("hint_level", hint_level)
-                body.setdefault("max_hints", 3)
-                return Response(body, status=status.HTTP_200_OK)
-            return Response({"error": "AI Service Error"}, status=resp.status_code)
-        except requests.exceptions.RequestException as e:
-            logger.error("AI Connection Error: %s", e)
-            return Response(
-                {"error": "AI Service Unavailable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            return _build_ai_result_response(async_result.result)
+
+        return Response(
+            {"task_id": async_result.id, "status": "queued"},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=inline_serializer(
@@ -341,33 +360,97 @@ class ChallengeViewSet(viewsets.ModelViewSet):
                 "user_code": serializers.CharField(),
             },
         ),
-        responses={200: OpenApiTypes.OBJECT, 503: OpenApiTypes.OBJECT},
+        responses={
+            200: OpenApiTypes.OBJECT,
+            202: OpenApiTypes.OBJECT,
+            503: OpenApiTypes.OBJECT,
+        },
         description="Get AI-powered analysis and feedback for your code.",
     )
     @decorators.action(detail=True, methods=["post"], url_path="ai-analyze")
     def ai_analyze(self, request, slug=None):
         challenge = self.get_object()
+        user_code = request.data.get("user_code", "")
+        cache_key = _analysis_cache_key(challenge.id, user_code)
+        cached_analysis = cache.get(cache_key)
+        if cached_analysis is not None:
+            if isinstance(cached_analysis, dict):
+                cached_analysis = {**cached_analysis, "cached": True}
+            return Response(cached_analysis, status=status.HTTP_200_OK)
 
-        ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8002")
-        payload = {
-            "user_code": request.data.get("user_code", ""),
-            "challenge_slug": challenge.slug,
-        }
-        headers = _build_internal_headers("/analyze")
+        async_result = generate_ai_analysis_task.delay(
+            challenge_id=challenge.id,
+            challenge_slug=challenge.slug,
+            user_code=user_code,
+        )
+        _store_ai_task_meta(async_result.id, request.user.id, "analysis")
 
-        try:
-            resp = requests.post(
-                f"{ai_url}/analyze", json=payload, headers=headers, timeout=60
-            )
-            if resp.status_code == 200:
-                return Response(resp.json(), status=status.HTTP_200_OK)
-            return Response({"error": "AI Service Error"}, status=resp.status_code)
-        except requests.exceptions.RequestException as e:
-            logger.error("AI Connection Error: %s", e)
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            return _build_ai_result_response(async_result.result)
+
+        return Response(
+            {"task_id": async_result.id, "status": "queued"},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="AITaskStatusResponse",
+                fields={
+                    "task_id": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "result": serializers.JSONField(required=False),
+                    "error": serializers.CharField(required=False),
+                    "traceback": serializers.CharField(required=False),
+                    "date_done": serializers.CharField(allow_null=True, required=False),
+                },
+            ),
+            404: OpenApiTypes.OBJECT,
+        },
+        description="Poll the status of an AI hint or analysis task for the current user.",
+    )
+    @decorators.action(
+        detail=False,
+        methods=["get"],
+        url_path=r"ai-tasks/(?P<task_id>[^/.]+)/status",
+    )
+    def ai_task_status(self, request, task_id=None):
+        task_meta = cache.get(_task_meta_cache_key(task_id)) or {}
+        if task_meta.get("user_id") != request.user.id:
             return Response(
-                {"error": "AI Service Unavailable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                {"error": "Task not found"},
+                status=status.HTTP_404_NOT_FOUND,
             )
+
+        async_result = AsyncResult(task_id)
+        response_data = {
+            "task_id": task_id,
+            "status": _task_status_label(async_result),
+            "date_done": (
+                str(async_result.date_done) if async_result.date_done else None
+            ),
+        }
+
+        if not async_result.ready():
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        task_result = async_result.result
+        if (
+            async_result.successful()
+            and isinstance(task_result, dict)
+            and task_result.get("ok")
+        ):
+            response_data["result"] = task_result.get("payload", {})
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        if async_result.successful() and isinstance(task_result, dict):
+            response_data["error"] = task_result.get("error", "AI task failed")
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        response_data["error"] = str(task_result)
+        response_data["traceback"] = async_result.traceback
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @extend_schema(
         responses={
@@ -434,43 +517,13 @@ class LeaderboardView(APIView):
                 many=True,
             )
         },
-        description="Get global leaderboard data (limited to top 100 users, cached for 30s).",
+        description="Get global leaderboard data (limited to top 100 users, cached and refreshed by the backend worker).",
     )
     def get(self, request):
-        cached_data = cache.get("leaderboard_data")
-        if cached_data:
+        cached_data = cache.get(LEADERBOARD_CACHE_KEY)
+        if cached_data is not None:
             return Response(cached_data, status=status.HTTP_200_OK)
 
-        users = (
-            User.objects.annotate(
-                completed_count=Count(
-                    "challenge_progress",
-                    filter=Q(challenge_progress__status=UserProgress.Status.COMPLETED),
-                )
-            )
-            .select_related("profile")
-            .filter(is_active=True, is_staff=False, is_superuser=False)
-            .order_by("-profile__xp", "-completed_count")[:100]
-        )
-
-        data = []
-        for user in users:
-            try:
-                profile = user.profile
-                avatar_url = profile.avatar.url if profile.avatar else None
-                xp = profile.xp
-            except UserProfile.DoesNotExist:
-                avatar_url = None
-                xp = 0
-
-            data.append(
-                {
-                    "username": user.username,
-                    "avatar": avatar_url,
-                    "completed_levels": user.completed_count,
-                    "xp": xp,
-                }
-            )
-
-        cache.set("leaderboard_data", data, timeout=30)
+        data = build_leaderboard_data()
+        cache.set(LEADERBOARD_CACHE_KEY, data, timeout=LEADERBOARD_CACHE_TIMEOUT)
         return Response(data, status=status.HTTP_200_OK)

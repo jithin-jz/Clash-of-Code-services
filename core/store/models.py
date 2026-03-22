@@ -46,6 +46,10 @@ class Purchase(models.Model):
     class Meta:
         ordering = ["-purchased_at"]
         unique_together = ["user", "item"]  # Optional: if items are one-time buy
+        indexes = [
+            models.Index(fields=["user", "item"]),
+            models.Index(fields=["user", "-purchased_at"]),
+        ]
 
     def __str__(self):
         return f"{self.user.username} bought {self.item.name}"

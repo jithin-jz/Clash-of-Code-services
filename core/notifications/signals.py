@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from users.models import UserFollow
 from posts.models import Post
 from .models import Notification
-from .utils import send_fcm_push
+from .tasks import send_push_notification_task
 
 
 @receiver(
@@ -25,8 +25,8 @@ def create_like_notification(sender, instance, action, pk_set, **kwargs):
                     verb="liked your post",
                     target=instance,
                 )
-                send_fcm_push(
-                    user=instance.user,
+                send_push_notification_task.delay(
+                    instance.user.id,
                     title="New Like!",
                     body=f"{actor.username} liked your post: {instance.caption[:30]}...",
                 )
@@ -44,8 +44,8 @@ def create_follow_notification(sender, instance, created, **kwargs):
             verb="started following you",
             target=instance.following,
         )
-        send_fcm_push(
-            user=instance.following,
+        send_push_notification_task.delay(
+            instance.following.id,
             title="New Follower!",
             body=f"{instance.follower.username} started following you.",
         )

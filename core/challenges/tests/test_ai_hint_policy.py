@@ -85,5 +85,5 @@ class AIHintPolicyTest(TestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(first.data["hint"], "Focus on the loop invariant.")
         self.assertEqual(second.data["hint"], "Focus on the loop invariant.")
-        self.assertTrue(second.data["cached"])
+        self.assertTrue(second.data.get("cached", False))
         self.assertEqual(mock_post.call_count, 1)

@@ -27,10 +27,12 @@ class NotificationTests(APITestCase):
         url = reverse("notification-list")
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(response.data["unread_count"], 2)
         # Should return 2 notifications
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(len(response.data["results"]), 2)
         # Verify both notification IDs are present
-        returned_ids = [n["id"] for n in response.data]
+        returned_ids = [n["id"] for n in response.data["results"]]
         self.assertIn(self.n1.id, returned_ids)
         self.assertIn(self.n2.id, returned_ids)
 
@@ -52,7 +54,7 @@ class NotificationTests(APITestCase):
     def test_clear_all_notifications(self):
         url = reverse("notification-clear-all")
         response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(Notification.objects.filter(recipient=self.user).count(), 0)
 
     def test_fcm_token_registration(self):
@@ -80,4 +82,4 @@ class NotificationTests(APITestCase):
         url = reverse("notification-list")
         response = self.client.get(url)
         # Should still only see 2 notifications (isolation check)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(len(response.data["results"]), 2)
