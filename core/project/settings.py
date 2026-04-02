@@ -35,7 +35,12 @@ ALLOWED_HOSTS = _parse_csv(
     ["localhost", "127.0.0.1", "core", "api.localhost"],
 )
 
-USE_CLOUDINARY = True
+cloudinary_cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
+cloudinary_api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
+cloudinary_api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+USE_CLOUDINARY = all(
+    [cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret]
+)
 
 # Applications
 INSTALLED_APPS = [
@@ -65,9 +70,10 @@ INSTALLED_APPS = [
     "achievements",
 ]
 
-staticfiles_index = INSTALLED_APPS.index("django.contrib.staticfiles")
-INSTALLED_APPS.insert(staticfiles_index, "cloudinary_storage")
-INSTALLED_APPS.append("cloudinary")
+if USE_CLOUDINARY:
+    staticfiles_index = INSTALLED_APPS.index("django.contrib.staticfiles")
+    INSTALLED_APPS.insert(staticfiles_index, "cloudinary_storage")
+    INSTALLED_APPS.append("cloudinary")
 
 # Middleware
 MIDDLEWARE = [
@@ -175,27 +181,21 @@ WHITENOISE_MANIFEST_STRICT = False
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-cloudinary_cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
-cloudinary_api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
-cloudinary_api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
-
-if not all([cloudinary_cloud_name, cloudinary_api_key, cloudinary_api_secret]):
-    raise ImproperlyConfigured(
-        "Cloudinary media storage is required. Set CLOUDINARY_CLOUD_NAME, "
-        "CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET."
-    )
-
-CLOUDINARY_STORAGE = {
-    "CLOUD_NAME": cloudinary_cloud_name,
-    "API_KEY": cloudinary_api_key,
-    "API_SECRET": cloudinary_api_secret,
-    "SECURE": _parse_bool(os.getenv("CLOUDINARY_SECURE"), default=True),
-}
-
 STORAGES = {
-    "default": {"BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage"},
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+
+if USE_CLOUDINARY:
+    CLOUDINARY_STORAGE = {
+        "CLOUD_NAME": cloudinary_cloud_name,
+        "API_KEY": cloudinary_api_key,
+        "API_SECRET": cloudinary_api_secret,
+        "SECURE": _parse_bool(os.getenv("CLOUDINARY_SECURE"), default=True),
+    }
+    STORAGES["default"] = {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage"
+    }
 
 # Backend URL (for absolute media paths)
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -311,14 +311,31 @@ REST_FRAMEWORK = {
     },
 }
 
-# JWT - RS256 Asymmetric Configuration
-JWT_ALGORITHM = "RS256"
+# JWT Configuration
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "RS256").upper()
+JWT_SHARED_SECRET = os.getenv("JWT_SHARED_SECRET", "").strip()
 
 # Private key for signing tokens (keep secure!)
-JWT_PRIVATE_KEY = os.getenv("JWT_PRIVATE_KEY", "").replace("\\n", "\n")
+JWT_PRIVATE_KEY = os.getenv("JWT_PRIVATE_KEY", "").replace("\\n", "\n").strip()
 
 # Public key for verifying tokens (can be shared with other services)
-JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n").strip()
+
+if not JWT_PRIVATE_KEY and not JWT_PUBLIC_KEY:
+    fallback_secret = JWT_SHARED_SECRET or (SECRET_KEY if DEBUG else "")
+    if not fallback_secret:
+        raise ImproperlyConfigured(
+            "JWT configuration incomplete. Set JWT_PRIVATE_KEY/JWT_PUBLIC_KEY "
+            "for RS256 or JWT_SHARED_SECRET for local HS256."
+        )
+    JWT_ALGORITHM = "HS256"
+    JWT_PRIVATE_KEY = fallback_secret
+    JWT_PUBLIC_KEY = fallback_secret
+elif not JWT_PRIVATE_KEY or not JWT_PUBLIC_KEY:
+    raise ImproperlyConfigured(
+        "JWT configuration incomplete. Both JWT_PRIVATE_KEY and JWT_PUBLIC_KEY "
+        "must be set for asymmetric signing."
+    )
 
 JWT_ACCESS_TOKEN_LIFETIME = 60 * 60
 JWT_REFRESH_TOKEN_LIFETIME = 60 * 60 * 24 * 7
@@ -358,15 +375,15 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = f"{FRONTEND_URL}/auth/google/callback"
 
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "jzdieheart@gmail.com"
-EMAIL_HOST_PASSWORD = "nrko gatv zahv megs"
-
-DEFAULT_FROM_EMAIL = "Clash of Code <jzdieheart@gmail.com>"
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = _parse_bool(os.getenv("EMAIL_USE_TLS"), default=True)
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Clash of Code <no-reply@localhost>")
 OTP_EMAIL_ASYNC = os.getenv("OTP_EMAIL_ASYNC", "true").lower() == "true"
 
 # Razorpay

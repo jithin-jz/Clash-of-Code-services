@@ -6,10 +6,11 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from project.health import HealthCheckView
-from project.views import TaskStatusView, TaskResultsListView
+from project.views import ServiceIndexView, TaskStatusView, TaskResultsListView
 
 urlpatterns = [
     # Health check
+    path("", ServiceIndexView.as_view(), name="service-index"),
     path("health/", HealthCheckView.as_view(), name="health-check"),
     path("admin/", admin.site.urls),
     path("api/auth/", include("auth.urls")),

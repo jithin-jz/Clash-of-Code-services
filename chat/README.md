@@ -40,7 +40,7 @@ Notes:
 
 ## 🔌 WebSocket API
 
-**URL**: `ws://api-coc.jithin.site/ws/{room_name}/?token={JWT}`
+**URL**: `ws://localhost/ws/chat/{room_name}`
 
 ### Example Message Protocol (JSON)
 
@@ -55,8 +55,8 @@ Notes:
 
 ## 🏗️ Architecture
 
-1. **Connection**: Client establishes WS connection with a JWT.
-2. **Auth**: The service decodes the JWT using the `JWT_PUBLIC_KEY` (No DB query required).
+1. **Connection**: Client establishes WS connection to `/ws/chat/{room}`.
+2. **Auth**: The service verifies the JWT from the `Authorization` header or auth cookie.
 3. **Tracking**: Active connections are stored in memory (`ConnectionManager`).
 4. **Persistence**: Chat history and reactions are stored in DynamoDB.
 5. **Broadcast**: Messages are published to Redis, and all listening instances relay to their connected clients.
@@ -66,6 +66,6 @@ Notes:
 ## 📂 Structure
 
 - `main.py`: App initialization and route definitions.
-- `manager.py`: Logic for managing active WebSocket connections.
-- `auth.py`: JWT verification logic using asymmetric keys.
-- `redis_client.py`: Redis Pub/Sub integration.
+- `main.py`: FastAPI app, websocket endpoints, auth, and Redis broadcast loop.
+- `dynamo.py`: DynamoDB persistence for chat history, edits, deletes, and reactions.
+- `rate_limiter.py`: Redis-backed anti-spam and anti-burst limits.

@@ -39,8 +39,15 @@ load_dotenv()
 app = FastAPI(title="Chat Service")
 
 # JWT Configuration (RS256 - asymmetric)
-ALGORITHM = "RS256"
-JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "RS256").upper()
+JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "").replace("\\n", "\n").strip()
+JWT_SHARED_SECRET = (
+    os.getenv("JWT_SHARED_SECRET", "").strip() or os.getenv("SECRET_KEY", "").strip()
+)
+JWT_VERIFY_KEY = JWT_PUBLIC_KEY
+if not JWT_VERIFY_KEY and JWT_SHARED_SECRET:
+    ALGORITHM = "HS256"
+    JWT_VERIFY_KEY = JWT_SHARED_SECRET
 JWT_ACCESS_COOKIE_NAME = os.getenv("JWT_ACCESS_COOKIE_NAME", "access_token")
 
 # Redis
@@ -145,10 +152,13 @@ def get_token(request: Request | WebSocket) -> str | None:
 def verify_jwt(token: str) -> dict | None:
     if not token:
         return None
+    if not JWT_VERIFY_KEY:
+        logger.warning("JWT verification key is not configured for the chat service.")
+        return None
     try:
         payload = jwt.decode(
             token,
-            JWT_PUBLIC_KEY,
+            JWT_VERIFY_KEY,
             algorithms=[ALGORITHM],
             options={"require": ["exp"]},
         )

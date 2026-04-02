@@ -2,6 +2,7 @@ import logging
 import json
 import redis
 import os
+from pathlib import Path
 from django.conf import settings
 from .models import FCMToken
 
@@ -18,14 +19,21 @@ redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 # Initialize Firebase Admin SDK
 try:
     if settings.FIREBASE_SERVICE_ACCOUNT_PATH and not firebase_admin._apps:
-        cred = credentials.Certificate(settings.FIREBASE_SERVICE_ACCOUNT_PATH)
-        firebase_admin.initialize_app(cred)
+        firebase_key_path = Path(settings.FIREBASE_SERVICE_ACCOUNT_PATH)
+        if firebase_key_path.exists():
+            cred = credentials.Certificate(str(firebase_key_path))
+            firebase_admin.initialize_app(cred)
+        else:
+            logger.warning(
+                "FIREBASE_SERVICE_ACCOUNT_PATH=%s was not found; push notifications are disabled.",
+                firebase_key_path,
+            )
     elif not settings.FIREBASE_SERVICE_ACCOUNT_PATH:
         logger.warning(
             "FIREBASE_SERVICE_ACCOUNT_PATH is not configured; push notifications are disabled."
         )
 except Exception as e:
-    logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+    logger.warning(f"Failed to initialize Firebase Admin SDK: {e}")
 
 
 def notify_via_ws(user_id, data):

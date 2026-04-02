@@ -12,6 +12,27 @@ from drf_spectacular.utils import (
 )
 
 
+class ServiceIndexView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    @extend_schema(
+        responses={200: OpenApiTypes.OBJECT},
+        description="Basic index for the core service and local gateway routes.",
+    )
+    def get(self, request):
+        return Response(
+            {
+                "service": "core",
+                "status": "ok",
+                "docs": "/api/docs/",
+                "health": "/health/",
+                "api_root": "/api/",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class TaskStatusView(APIView):
     """
     Check the status of a Celery task by its task_id.

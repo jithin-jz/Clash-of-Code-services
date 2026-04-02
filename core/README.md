@@ -64,12 +64,18 @@ celery -A project beat -l info
 
 ## 🏗️ Technical Notes
 
-### JWT Symmetric Signing
+### JWT Configuration
 
-The service uses **RS256** asymmetric keys.
+Production should use **RS256** asymmetric keys.
 
 - **`JWT_PRIVATE_KEY`**: Used by Core to sign tokens.
 - **`JWT_PUBLIC_KEY`**: Shared with Chat/AI services to verify identity without database lookups.
+
+For local development, you can omit the RSA keys and set **`JWT_SHARED_SECRET`** instead. Core and Chat will automatically fall back to `HS256`.
+
+### Media Storage
+
+Cloudinary is supported for deployment, but local development now falls back to filesystem media storage when Cloudinary credentials are not provided.
 
 ### Database Seeding
 

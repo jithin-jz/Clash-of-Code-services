@@ -38,6 +38,13 @@ Edit `configmaps.yaml` and update the following for your production environment:
 - `DB_HOST`, `DB_PORT`, and `AWS_REGION`
 - `EMAIL_BACKEND` (Set to SES or SMTP)
 
+Set these frontend env vars in Vercel so the browser points at the ingress host:
+
+- `VITE_API_URL=https://api.your-domain.com/api`
+- `VITE_AI_URL=https://api.your-domain.com/ai`
+- `VITE_CHAT_URL=wss://api.your-domain.com/ws/chat`
+- `VITE_NOTIFICATIONS_WS_URL=wss://api.your-domain.com/ws/notifications`
+
 ## 🚀 3. Deploy
 
 Apply the namespace first, then everything else:
@@ -59,7 +66,8 @@ Monitor the health of your services:
 
 - **Core**: `https://api.your-domain.com/health/`
 - **AI**: `https://api.your-domain.com/ai/health`
-- **Chat**: `https://api.your-domain.com/api/chat/health` (Internal: `chat:8001/`)
+- **Chat WS**: `wss://api.your-domain.com/ws/chat/global`
+- **Chat Health (cluster/internal)**: `http://chat:8001/`
 
 ## 🛠️ Update Workflow
 
