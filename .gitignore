@@ -20,3 +20,8 @@ core/.env
 
 # Docker
 *.log
+
+# Secrets (never commit)
+.env.*
+!.env.example
+kubeconfig*.yaml
